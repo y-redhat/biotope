@@ -2,31 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions Biotope – Life & Civilization</title>
+<title>NovaNotions Biotope – Stable Edition</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
-body { margin:0; background:#000; overflow:hidden; font-family:monospace; }
-#ui {
-  position:absolute; bottom:10px; left:50%;
-  transform:translateX(-50%);
-  width:90%; text-align:center;
-}
-input {
-  width:60%; padding:8px;
-  background:rgba(0,0,0,.8);
-  border:1px solid #0f0; color:#0f0;
-}
-#stats {
-  color:#aaa; font-size:12px; margin-bottom:4px;
-}
-#log {
-  position:absolute; top:10px; left:10px;
-  width:340px; height:220px;
-  overflow:auto; font-size:11px;
-  background:rgba(0,0,0,.6);
-  border:1px solid #033; padding:5px;
-  color:#0f0;
-}
+body{margin:0;background:#000;overflow:hidden;font-family:monospace}
+#ui{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:90%;text-align:center}
+input{width:60%;padding:8px;background:rgba(0,0,0,.8);border:1px solid #0f0;color:#0f0}
+#stats{color:#aaa;font-size:12px;margin-bottom:4px}
+#log{position:absolute;top:10px;left:10px;width:340px;height:220px;overflow:auto;font-size:11px;background:rgba(0,0,0,.6);border:1px solid #033;padding:5px;color:#0f0}
 </style>
 </head>
 
@@ -44,320 +27,243 @@ input {
 </div>
 
 <script>
-/* ===============================
-   グローバル
-=============================== */
+/* ================= グローバル ================= */
 let organisms=[], foods=[], houses=[];
-let time=0, year=0;
-let fertility=1;
-let civilization=0; // 0遊牧 1村 2都市 3国家
-
+let time=0, year=0, fertility=1, civilization=0;
 const CIV_NAMES=["Nomad","Village","City","Nation"];
 
-/* ===============================
-   ウイルス定義（自然界モデル）
-=============================== */
-const VIRUS_POOL = [
-  { name:"Mild",   infect:0.25, severity:0.1,  death:0.001 },
-  { name:"Flu",    infect:0.18, severity:0.3,  death:0.005 },
-  { name:"Severe", infect:0.07, severity:0.6,  death:0.02  }
+/* ================= ウイルス ================= */
+const VIRUS_POOL=[
+ {name:"Mild",infect:0.25,severity:0.1,death:0.001},
+ {name:"Flu",infect:0.18,severity:0.3,death:0.005},
+ {name:"Severe",infect:0.07,severity:0.6,death:0.02}
 ];
 
-class Virus {
-  constructor(template){
-    this.name = template.name;
-    this.infect = template.infect;
-    this.severity = template.severity;
-    this.death = template.death;
-  }
-  mutate(){
-    // 自然変異（弱毒化しやすい）
-    this.infect = constrain(this.infect + random(-0.02,0.02),0.01,0.4);
-    this.severity = constrain(this.severity + random(-0.02,0.02),0.05,0.8);
-    this.death = constrain(this.death + random(-0.001,0.001),0,0.05);
-  }
+class Virus{
+ constructor(t){
+  this.name=t.name;
+  this.infect=t.infect;
+  this.severity=t.severity;
+  this.death=t.death;
+ }
+ mutate(){
+  this.infect=constrain(this.infect+random(-0.01,0.01),0.01,0.4);
+  this.severity=constrain(this.severity+random(-0.01,0.01),0.05,0.8);
+  this.death=constrain(this.death+random(-0.0005,0.0005),0,0.05);
+ }
 }
 
-/* ===============================
-   セットアップ
-=============================== */
+/* ================= setup ================= */
 function setup(){
-  createCanvas(windowWidth,windowHeight);
-  spawnFood(200);
-  runCommand("genesis");
+ createCanvas(windowWidth,windowHeight);
+ spawnFood(200);
+ runCommand("genesis");
 
-  const input=document.getElementById("cmd");
-  input.focus();
-  input.addEventListener("keydown",e=>{
-    if(e.key==="Enter"){
-      runCommand(input.value);
-      input.value="";
-      input.focus();
-    }
-  });
+ const input=document.getElementById("cmd");
+ input.focus();
+ input.addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+   runCommand(input.value);
+   input.value="";
+   input.focus();
+  }
+ });
 }
 
-/* ===============================
-   メインループ
-=============================== */
+/* ================= draw ================= */
 function draw(){
-  time++;
-  if(time%60===0) year++;
+ time++; if(time%60===0) year++;
+ background(0,20+fertility*20,10);
 
-  background(0,20+fertility*20,10);
+ if(houses.length>3) civilization=1;
+ if(houses.length>10) civilization=2;
+ if(houses.length>30) civilization=3;
 
-  // 文明進化
-  if(houses.length>3) civilization=1;
-  if(houses.length>10) civilization=2;
-  if(houses.length>30) civilization=3;
+ document.getElementById("year").innerText=year;
+ document.getElementById("pop").innerText=organisms.length;
+ document.getElementById("houseCount").innerText=houses.length;
+ document.getElementById("civ").innerText=CIV_NAMES[civilization];
 
-  yearEl.innerText=year;
-  pop.innerText=organisms.length;
-  houseCount.innerText=houses.length;
-  civ.innerText=CIV_NAMES[civilization];
+ if(random()<0.15*fertility) foods.push(createVector(random(width),random(height)));
+ noStroke(); fill(100,255,100,120);
+ foods.forEach(f=>circle(f.x,f.y,4));
 
-  if(random()<0.15*fertility) foods.push(createVector(random(width),random(height)));
+ houses.forEach(h=>h.show());
 
-  // 食料描画
-  noStroke(); fill(100,255,100,120);
-  foods.forEach(f=>circle(f.x,f.y,4));
-
-  houses.forEach(h=>h.show());
-
-  for(let i=organisms.length-1;i>=0;i--){
-    let o=organisms[i];
-    o.update();
-    o.show();
-    if(o.dead()){
-      organisms.splice(i,1);
-      fertility=min(1,fertility+0.001);
-    }else{
-      let c=o.reproduce();
-      if(c) organisms.push(c);
-    }
+ for(let i=organisms.length-1;i>=0;i--){
+  let o=organisms[i];
+  o.update(); o.show();
+  if(o.dead()){
+   organisms.splice(i,1);
+   fertility=min(1,fertility+0.001);
+  }else{
+   let c=o.reproduce();
+   if(c) organisms.push(c);
   }
+ }
 }
 
-/* ===============================
-   コマンド
-=============================== */
+/* ================= コマンド ================= */
 function runCommand(c){
-  c=c.trim().toLowerCase();
-  if(c==="genesis"){
-    for(let i=0;i<10;i++)
-      organisms.push(new Organism(random(width),random(height)));
-    seedVirus();
-  }
-  if(c==="meteor"){
-    organisms=organisms.slice(0,floor(organisms.length/2));
-    houses=[];
-    fertility=0.3;
-    log("☄ METEOR EVENT");
-  }
-  if(c==="reset"){
-    organisms=[]; foods=[]; houses=[];
-    fertility=1; year=0; civilization=0;
-    spawnFood(200);
-    runCommand("genesis");
-  }
+ c=c.trim().toLowerCase();
+ if(c==="genesis"){
+  organisms=[]; houses=[];
+  for(let i=0;i<10;i++) organisms.push(new Organism(random(width),random(height)));
+  seedVirus();
+ }
+ if(c==="meteor"){
+  organisms=organisms.slice(0,floor(organisms.length/2));
+  houses=[]; fertility=0.3;
+  log("☄ METEOR");
+ }
+ if(c==="reset"){
+  organisms=[]; foods=[]; houses=[];
+  fertility=1; year=0; civilization=0;
+  spawnFood(200); runCommand("genesis");
+ }
 }
 
-/* ===============================
-   家
-=============================== */
-class House {
-  constructor(x,y){
-    this.pos=createVector(x,y);
-    this.radius=60;
-  }
-  show(){
-    noFill();
-    stroke(200,200,50,80);
-    circle(this.pos.x,this.pos.y,this.radius*2);
-  }
+/* ================= 家 ================= */
+class House{
+ constructor(x,y){this.pos=createVector(x,y);this.radius=60}
+ show(){noFill();stroke(200,200,50,80);circle(this.pos.x,this.pos.y,this.radius*2)}
 }
 
-/* ===============================
-   生物
-=============================== */
-class Organism {
-  constructor(x,y,dna){
-    this.pos=createVector(x,y);
-    this.vel=p5.Vector.random2D();
-    this.acc=createVector();
+/* ================= 生物 ================= */
+class Organism{
+ constructor(x,y,dna){
+  this.pos=createVector(x,y);
+  this.vel=p5.Vector.random2D();
+  this.acc=createVector();
+  this.sex=random()<0.5?"M":"F";
+  this.partner=null; this.home=null;
+  this.virus=null;
+  this.dna=dna||{size:random(8,14),speed:random(1.2,2.5),sense:random(60,100),hue:random(360)};
+  this.health=1; this.age=0; this.maxAge=random(900,1400);
+ }
 
-    this.sex=random()<0.5?"M":"F";
-    this.partner=null;
-    this.home=null;
-
-    this.virus=null;
-    this.infectedTime=0;
-
-    this.dna=dna||{
-      size:random(8,14),
-      speed:random(1.2,2.5),
-      sense:random(60,100),
-      hue:random(360)
-    };
-
-    this.health=1;
-    this.age=0;
-    this.maxAge=random(900,1400);
+ update(){
+  this.age++;
+  if(this.virus){
+   this.health-=this.virus.severity*0.0006;
+   if(random()<this.virus.death*0.0008) this.health=-1;
+   if(random()<0.001) this.virus.mutate();
+   if(random()<0.0005) this.virus=null;
+   this.spreadVirus();
   }
+  if(this.partner&&this.home) this.stayNearHome();
+  else{this.findMate();this.forage();}
+  this.vel.add(this.acc);
+  this.vel.limit(this.dna.speed*(this.virus?0.7:1));
+  this.pos.add(this.vel); this.acc.mult(0);
+  this.health-=0.002*pow(this.dna.size,0.75);
+  this.edges();
+ }
 
-  update(){
-    this.age++;
-
-    // ウイルス進行
-    if(this.virus){
-      this.infectedTime++;
-      this.health-=this.virus.severity*0.0006;
-      if(random()<this.virus.death*0.0008) this.health=-1;
-      if(random()<0.001) this.virus.mutate(); // 変異
-      if(random()<0.0005) this.virus=null; // 自然消滅
-      this.spreadVirus();
+ spreadVirus(){
+  if(!this.virus) return;
+  for(let o of organisms){
+   if(!o.virus&&o!==this){
+    if(p5.Vector.dist(this.pos,o.pos)<this.dna.size*2 && random()<this.virus.infect){
+     o.virus=new Virus(this.virus);
     }
-
-    if(this.partner && this.home){
-      this.stayNearHome();
-    }else{
-      this.findMate();
-      this.forage();
-    }
-
-    this.vel.add(this.acc);
-    this.vel.limit(this.dna.speed*(this.virus?0.7:1));
-    this.pos.add(this.vel);
-    this.acc.mult(0);
-
-    this.health-=0.002*pow(this.dna.size,0.75);
-    this.edges();
+   }
   }
+ }
 
-  spreadVirus(){
-    for(let o of organisms){
-      if(!o.virus && o!==this){
-        let d=p5.Vector.dist(this.pos,o.pos);
-        if(d<this.dna.size*2 && random()<this.virus.infect){
-          o.virus=new Virus(this.virus);
-          log("🦠 Infection spread");
-        }
-      }
-    }
+ findMate(){
+  if(this.partner) return;
+  for(let o of organisms){
+   if(o!==this&&!o.partner&&o.sex!==this.sex&&dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y)<20){
+    this.partner=o; o.partner=this;
+    let h=new House((this.pos.x+o.pos.x)/2,(this.pos.y+o.pos.y)/2);
+    houses.push(h); this.home=h; o.home=h;
+    break;
+   }
   }
+ }
 
-  findMate(){
-    if(this.partner) return;
-    for(let o of organisms){
-      if(o!==this && !o.partner && o.sex!==this.sex){
-        if(dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y)<20){
-          this.partner=o; o.partner=this;
-          let h=new House((this.pos.x+o.pos.x)/2,(this.pos.y+o.pos.y)/2);
-          houses.push(h);
-          this.home=h; o.home=h;
-          log("❤️ New family formed");
-          break;
-        }
-      }
-    }
+ reproduce(){
+  if(this.partner&&this.home&&random()<0.002){
+   this.health-=0.2;
+   return new Organism(this.home.pos.x,this.home.pos.y,{
+    size:this.dna.size+random(-1,1),
+    speed:this.dna.speed+random(-0.3,0.3),
+    sense:this.dna.sense+random(-10,10),
+    hue:(this.dna.hue+random(-10,10)+360)%360
+   });
   }
+  return null;
+ }
 
-  reproduce(){
-    if(this.partner && this.home && random()<0.002){
-      this.health-=0.2;
-      let d={
-        size:this.dna.size+random(-1,1),
-        speed:this.dna.speed+random(-0.3,0.3),
-        sense:this.dna.sense+random(-10,10),
-        hue:(this.dna.hue+random(-10,10)+360)%360
-      };
-      log("👶 Birth");
-      return new Organism(this.home.pos.x,this.home.pos.y,d);
-    }
-    return null;
+ forage(){
+  let t=null,d=this.dna.sense;
+  for(let i=foods.length-1;i>=0;i--){
+   let dista=p5.Vector.dist(this.pos,foods[i]);
+   if(dista<d){d=dista;t=foods[i];
+    if(dista<this.dna.size){foods.splice(i,1);this.health+=0.3;fertility-=0.0005}
+   }
   }
+  if(t) this.applyForce(this.seek(t)); else this.wander();
+ }
 
-  forage(){
-    let t=null, dmin=this.dna.sense;
-    for(let i=foods.length-1;i>=0;i--){
-      let d=p5.Vector.dist(this.pos,foods[i]);
-      if(d<dmin){
-        dmin=d; t=foods[i];
-        if(d<this.dna.size){
-          foods.splice(i,1);
-          this.health+=0.3;
-          fertility-=0.0005;
-        }
-      }
-    }
-    if(t) this.applyForce(this.seek(t));
-    else this.wander();
-  }
+ stayNearHome(){
+  let d=p5.Vector.sub(this.home.pos,this.pos);
+  if(d.mag()>this.home.radius) this.applyForce(d.setMag(0.2));
+  else this.wander();
+ }
 
-  stayNearHome(){
-    let d=p5.Vector.sub(this.home.pos,this.pos);
-    if(d.mag()>this.home.radius)
-      this.applyForce(d.setMag(0.2));
-    else this.wander();
-  }
+ wander(){
+  let a=noise(this.pos.x*0.01,this.pos.y*0.01,time*0.01)*TWO_PI*2;
+  this.applyForce(p5.Vector.fromAngle(a).mult(0.2));
+ }
 
-  wander(){
-    let a=noise(this.pos.x*0.01,this.pos.y*0.01,time*0.01)*TWO_PI*2;
-    this.applyForce(p5.Vector.fromAngle(a).mult(0.2));
-  }
+ seek(t){
+  let d=p5.Vector.sub(t,this.pos);
+  d.setMag(this.dna.speed);
+  return p5.Vector.sub(d,this.vel).limit(0.1);
+ }
 
-  seek(t){
-    let d=p5.Vector.sub(t,this.pos);
-    d.setMag(this.dna.speed);
-    return p5.Vector.sub(d,this.vel).limit(0.1);
-  }
+ applyForce(f){this.acc.add(f)}
+ dead(){return this.health<=0||this.age>this.maxAge}
 
-  applyForce(f){ this.acc.add(f); }
-  dead(){ return this.health<=0||this.age>this.maxAge; }
+ edges(){
+  if(this.pos.x<0)this.pos.x=width;
+  if(this.pos.x>width)this.pos.x=0;
+  if(this.pos.y<0)this.pos.y=height;
+  if(this.pos.y>height)this.pos.y=0;
+ }
 
-  edges(){
-    if(this.pos.x<0) this.pos.x=width;
-    if(this.pos.x>width) this.pos.x=0;
-    if(this.pos.y<0) this.pos.y=height;
-    if(this.pos.y>height) this.pos.y=0;
-  }
-
-  show(){
-    colorMode(HSB,360,100,100,100);
-    let c=color(this.dna.hue,80,this.virus?70:100,80);
-    push();
-    translate(this.pos.x,this.pos.y);
-    rotate(this.vel.heading()+PI/2);
-    noStroke(); fill(c);
-    beginShape();
-    vertex(0,-this.dna.size*1.5);
-    bezierVertex(-this.dna.size,0,-this.dna.size,this.dna.size,0,this.dna.size);
-    bezierVertex(this.dna.size,this.dna.size,this.dna.size,0,0,-this.dna.size*1.5);
-    endShape();
-    pop();
-    colorMode(RGB,255);
-  }
+ show(){
+  colorMode(HSB,360,100,100,100);
+  fill(this.dna.hue,80,this.virus?70:100,80);
+  push();
+  translate(this.pos.x,this.pos.y);
+  rotate(this.vel.heading()+PI/2);
+  noStroke();
+  beginShape();
+  vertex(0,-this.dna.size*1.5);
+  bezierVertex(-this.dna.size,0,-this.dna.size,this.dna.size,0,this.dna.size);
+  bezierVertex(this.dna.size,this.dna.size,this.dna.size,0,0,-this.dna.size*1.5);
+  endShape();
+  pop();
+  colorMode(RGB,255);
+ }
 }
 
-/* ===============================
-   補助
-=============================== */
-function spawnFood(n){
-  for(let i=0;i<n;i++)
-    foods.push(createVector(random(width),random(height)));
-}
+/* ================= 補助 ================= */
+function spawnFood(n){for(let i=0;i<n;i++)foods.push(createVector(random(width),random(height)))}
 function seedVirus(){
-  let o=random(organisms);
-  o.virus=new Virus(random(VIRUS_POOL));
-  log("🦠 Virus introduced");
+ if(organisms.length===0) return;
+ organisms[0].virus=new Virus(random(VIRUS_POOL));
+ log("🦠 Virus introduced");
 }
 function log(t){
-  let l=document.getElementById("log");
-  l.innerHTML=t+"<br>"+l.innerHTML;
+ let l=document.getElementById("log");
+ l.innerHTML=t+"<br>"+l.innerHTML;
 }
-function windowResized(){
-  resizeCanvas(windowWidth,windowHeight);
-}
+function windowResized(){resizeCanvas(windowWidth,windowHeight)}
 </script>
 </body>
 </html>
+
