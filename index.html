@@ -30,23 +30,17 @@ WAR:<span id="warstat">NO</span>
 </div>
 
 <script>
-/* =====================
-   グローバル
-===================== */
 let organisms=[],foods=[];
 let time=0,epoch=0,war=false,civilization=0;
 const CIV_NAMES=["Hunter-Gatherer","Agriculture","Nation"];
 let cmd,logDiv,logBuffer=[];
-let border=0.5; // 国境比率（勝者で変動）
+let border=0.5;
 
-/* =====================
-   初期化
-===================== */
 function setup(){
  createCanvas(windowWidth,windowHeight);
  cmd=document.getElementById("cmd");
  logDiv=document.getElementById("log");
- spawnFood(200);
+ spawnFood(260);
  runCommand("genesis");
 
  cmd.addEventListener("keydown",e=>{
@@ -57,9 +51,6 @@ function setup(){
  });
 }
 
-/* =====================
-   メインループ
-===================== */
 function draw(){
  background(0);
  time++; if(time%60===0) epoch++;
@@ -78,9 +69,6 @@ function draw(){
   logDiv.innerHTML=logBuffer.slice().reverse().join("<br>");
 }
 
-/* =====================
-   国家境界
-===================== */
 function drawNations(){
  if(!war){
   noStroke();
@@ -94,9 +82,6 @@ function drawNations(){
  }
 }
 
-/* =====================
-   UI
-===================== */
 function updateUI(){
  year.innerText=epoch;
  pop.innerText=organisms.length;
@@ -104,9 +89,6 @@ function updateUI(){
  warstat.innerText=war?"YES":"NO";
 }
 
-/* =====================
-   生物
-===================== */
 class Organism{
  constructor(){
   this.ideology=random()<0.5?"red":"blue";
@@ -122,19 +104,29 @@ class Organism{
  }
 
  update(){
-  this.health-=0.0004;
+  this.health -= 1/(60*60); // ★ 約1分寿命
+
   this.pos.add(this.vel);
   if(random()<0.02)
    this.vel=p5.Vector.random2D().mult(0.6);
 
-  // 国境侵犯チェック
+  // 食料
+  for(let f of foods){
+   if(dist(this.pos.x,this.pos.y,f.pos.x,f.pos.y)<this.size){
+    this.health=min(1,this.health+0.25);
+   }
+  }
+
+  // 繁殖（農業以降）
+  if(civilization>=1 && this.health>0.9 && random()<0.002){
+   organisms.push(new Organism());
+   this.health*=0.5;
+  }
+
+  // 国境侵犯
   if(!war){
-   if(this.ideology==="red"&&this.pos.x>width*border){
-    startWar("border violation");
-   }
-   if(this.ideology==="blue"&&this.pos.x<width*border){
-    startWar("border violation");
-   }
+   if(this.ideology==="red"&&this.pos.x>width*border) startWar("border violation");
+   if(this.ideology==="blue"&&this.pos.x<width*border) startWar("border violation");
   }
 
   this.edges();
@@ -162,23 +154,15 @@ class Organism{
  }
 }
 
-/* =====================
-   生物更新
-===================== */
 function updateOrganisms(){
- let r=0,b=0;
  for(let i=organisms.length-1;i>=0;i--){
   let o=organisms[i];
   o.update();
   o.show();
-  o.ideology==="red"?r++:b++;
   if(o.dead()) organisms.splice(i,1);
  }
 }
 
-/* =====================
-   戦争
-===================== */
 function startWar(reason){
  if(war||civilization<2) return;
  war=true;
@@ -197,38 +181,26 @@ function checkSurrender(){
 function endWar(winner){
  war=false;
  let gain=0.08;
- if(winner==="red"){
-  border=min(0.8,border+gain);
- }else{
-  border=max(0.2,border-gain);
- }
+ if(winner==="red") border=min(0.8,border+gain);
+ else border=max(0.2,border-gain);
  log("🏳 "+winner+" wins – territory expanded");
 }
 
-/* =====================
-   コマンド
-===================== */
 function runCommand(c){
  c=c.trim();
- if(c==="genesis"){
-  if(organisms.length===0){
-   for(let i=0;i<20;i++) organisms.push(new Organism());
-   log("🌱 genesis");
-  }
+ if(c==="genesis"&&organisms.length===0){
+  for(let i=0;i<20;i++) organisms.push(new Organism());
+  log("🌱 genesis");
  }
  if(c==="war") startWar("command");
  if(c==="reset"){
-  organisms=[];foods=[];
-  border=0.5;war=false;civilization=0;
-  spawnFood(200);
+  organisms=[];foods=[];border=0.5;war=false;civilization=0;
+  spawnFood(260);
   runCommand("genesis");
   log("↺ reset");
  }
 }
 
-/* =====================
-   補助
-===================== */
 function spawnFood(n){
  for(let i=0;i<n;i++)
   foods.push({pos:createVector(random(width),random(height))});
@@ -245,5 +217,6 @@ function windowResized(){resizeCanvas(windowWidth,windowHeight);}
 </script>
 </body>
 </html>
+
 
 
