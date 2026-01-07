@@ -2,14 +2,14 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions – Ideology Civilization Biotope</title>
+<title>NovaNotions – Ideology Civilization Biotope (改良版)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
 body{margin:0;background:#000;font-family:monospace;overflow:hidden}
 #ui{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:90%;text-align:center;z-index:10}
 input{width:60%;padding:10px;background:rgba(0,0,0,.8);border:1px solid #0f0;color:#0f0}
 #stats{color:#aaa;font-size:12px;margin-bottom:4px}
-#log{position:absolute;top:10px;left:10px;width:320px;height:220px;overflow:auto;
+#log{position:absolute;top:10px;left:10px;width:360px;height:220px;overflow:auto;
 font-size:11px;color:#0f0;background:rgba(0,0,0,.6);border:1px solid #033;padding:5px}
 </style>
 </head>
@@ -18,6 +18,7 @@ font-size:11px;color:#0f0;background:rgba(0,0,0,.6);border:1px solid #033;paddin
 <div id="log"></div>
 <div id="ui">
 <div id="stats">
+TIME:<span id="timer">00:00</span> |
 YEAR:<span id="year">0</span> |
 POP:<span id="pop">0</span> |
 CIV:<span id="civ">Hunter-Gatherer</span> |
@@ -46,10 +47,16 @@ const IDEOLOGY={
  blue:{name:"Capitalism",xMin:0}
 };
 
+/* 稼働時間制御 */
+let startTime=0;
+const MIN_RUN_MS = 1000 * 60 * 5; // 5分
+
 function setup(){
  createCanvas(windowWidth,windowHeight);
  spawnFood(200);
  runCommand("genesis");
+
+ startTime = millis();
 
  cmd.addEventListener("keydown",e=>{
   if(e.key==="Enter"){runCommand(cmd.value);cmd.value="";}
@@ -63,6 +70,13 @@ function draw(){
  time++; if(time%60===0) epoch++;
  background(0,30*fertility,10);
 
+ // タイマー表示（mm:ss）
+ let elapsed = millis() - startTime;
+ let s = floor(elapsed/1000);
+ let mm = nf(floor(s/60),2);
+ let ss = nf(s%60,2);
+ timer.innerText = mm + ":" + ss;
+
  // 文明進化
  if(organisms.length>40 && civilization===0) civilization=1;
  if(organisms.length>120 && civilization===1) civilization=2;
@@ -73,7 +87,7 @@ function draw(){
  civ.innerText=CIV_NAMES[civilization];
  warstat.innerText=war?"YES":"NO";
 
- // 食料生成
+ // 食料生成（文明で farm 出現確率変化）
  if(random()<0.12*fertility){
   let type="plant";
   if(civilization>=1 && random()<0.3) type="farm";
@@ -105,8 +119,18 @@ function draw(){
   }
  }
 
- // 戦争条件
- if(!war && organisms.length>100) startWar();
+ // 最低5分間は絶滅を防ぐ（5分未満なら少数補充）
+ if(elapsed < MIN_RUN_MS){
+  ensureMinPopulation(8);
+ }
+
+ // 戦争条件（自動発生は5分後から）
+ if(!war && organisms.length>100 && elapsed>=MIN_RUN_MS) startWar();
+ if(!war && organisms.length>100 && elapsed<MIN_RUN_MS){
+  // 5分未満で戦争条件を満たしてもログだけ出す（実行はしない）
+  // 一度だけ通知するため、time%300===0 などで断続的に表示
+  if(time % 300 === 0) log("War locked until 5 minutes have passed");
+ }
  if(war){
   if(red<=10 && blue>10) endWar("red");
   if(blue<=10 && red>10) endWar("blue");
@@ -117,24 +141,37 @@ function draw(){
    コマンド
 ===================== */
 function runCommand(cmd){
- cmd=cmd.toLowerCase();
+ cmd=cmd.toLowerCase().trim();
+ let elapsed = millis()-startTime;
  if(cmd==="genesis"){
   for(let i=0;i<10;i++){
    organisms.push(new Organism(random(width),random(height)));
   }
+  log("> genesis");
  }
- if(cmd==="evolve"){
+ else if(cmd==="evolve"){
   organisms.forEach(o=>{
    o.dna.speed=constrain(o.dna.speed+random(-0.3,0.3),0.5,3);
   });
+  log("> evolve");
  }
- if(cmd==="meteor"){
+ else if(cmd==="meteor"){
+  if(elapsed < MIN_RUN_MS){
+   log("☄ METEOR LOCKED: simulation protected for 5 minutes");
+   return;
+  }
   organisms=organisms.slice(0,floor(organisms.length/2));
   fertility=0.2;
   log("☄ METEOR IMPACT");
  }
- if(cmd==="war") startWar();
- if(cmd==="reset") location.reload();
+ else if(cmd==="war"){
+  if(elapsed < MIN_RUN_MS){
+   log("⚠ War command locked until 5 minutes have passed");
+   return;
+  }
+  startWar();
+ }
+ else if(cmd==="reset") location.reload();
 }
 
 /* =====================
@@ -163,46 +200,96 @@ class Organism{
   this.health=1;
   this.age=0;
   this.maxAge=random(900,1400);
+
+  // 資本主義用の貯蓄（stash）や共産主義用の協力フラグ
+  this.stash = 0; // blue が蓄える
+  this.coopCooldown = 0; // red の共有クールダウン制御
  }
 
  update(){
   this.age++;
   if(this.health<=0||this.age>this.maxAge) this.health=0;
 
+  // 文明が進むと中心に集まる傾向（既存）
   if(civilization===2){
    let cx=this.ideology==="red"?width*0.25:width*0.75;
    this.applyForce(this.seek(createVector(cx,height/2)).mult(0.2));
   }else this.forage();
 
+  // 追加：思想ごとの行動性差
+  if(this.ideology==="blue"){
+   // 資本主義: より獲得効率を追求する -> 少し速くなるが疲弊も
+   this.vel.limit(this.dna.speed * (war?1.45:1.15));
+  }else{
+   // 共産主義: 協力的なので安定した速度
+   this.vel.limit(this.dna.speed * (war?1.2:1));
+  }
+
   this.vel.add(this.acc);
-  this.vel.limit(this.dna.speed*(war?1.3:1));
   this.pos.add(this.vel);
   this.acc.mult(0);
 
+  // 基本の消耗
   this.health-=0.002*pow(this.dna.size,0.75);
   this.edges();
 
+  // 戦争時の攻撃判定（思想により致死率を変える）
   if(war){
-   organisms.forEach(o=>{
-    if(o.ideology!==this.ideology && dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y)<6){
-     if(random()<0.01) this.health=0;
+   for(let o of organisms){
+    if(o!==this && o.ideology!==this.ideology && dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y)<6){
+     let killProb = (this.ideology==="blue") ? 0.02 : 0.006; // blueが攻撃的
+     if(random()<killProb) o.health = max(0, o.health - random(0.6,1.0));
+     // 共産主義は仲間がやられそうだと援護する（近くのredが小回復を与える）
+     if(this.ideology==="red"){
+      this.callForAid();
+     }
     }
-   });
+   }
   }
+
+  // 共産主義: 仲間支援のクールダウン処理
+  if(this.coopCooldown>0) this.coopCooldown--;
+
+  // 資本主義: stash を少し自然消費（取引や再投資）
+  if(this.stash>0) this.stash = max(0, this.stash - 0.0005);
  }
 
  forage(){
   let nearest=null,dmin=this.dna.sense;
   for(let i=foods.length-1;i>=0;i--){
    let d=p5.Vector.dist(this.pos,foods[i].pos);
-   if(d<dmin){
-    dmin=d; nearest=foods[i];
-    if(d<this.dna.size){
-     let gain=FOOD_TYPES[foods[i].type].energy;
+   // 資本主義は farm を優先的に探す（farm に引き寄せ）
+   let score = d;
+   if(this.ideology==="blue" && foods[i].type==="farm") score *= 0.6;
+   if(score<dmin){
+    dmin=score; nearest=foods[i];
+    // 取得処理（サイズ以内）
+    if(dist(this.pos.x,this.pos.y,foods[i].pos.x,foods[i].pos.y) < this.dna.size){
+     let gain = FOOD_TYPES[foods[i].type].energy;
      if(this.diet==="herbivore"&&foods[i].type==="meat") gain*=0.2;
      if(this.diet==="carnivore"&&foods[i].type!=="meat") gain*=0.2;
-     this.health+=gain;
-     this.memory.good++;
+
+     // 思想ごとの摂取結果
+     if(this.ideology==="red"){
+      // 共産主義: 多くは仲間に再分配するために一部を外部へ還元
+      let selfGain = gain * 0.8;
+      let share = gain * 0.2;
+      this.health += selfGain;
+      this.memory.good++;
+      // 近くで弱い赤に配る
+      if(this.coopCooldown===0){
+       this.shareToAllies(share);
+       this.coopCooldown = 180; // 約3秒のクールダウン
+      }
+     }else{
+      // 資本主義: 一部をstash（蓄財）して、体力に回すのは一部だけ
+      let toStash = gain * 0.6;
+      let selfGain = gain * 0.4;
+      this.stash += toStash;
+      this.health += selfGain;
+      this.memory.good++;
+     }
+
      foods.splice(i,1);
     }
    }
@@ -211,23 +298,70 @@ class Organism{
   else this.wander();
  }
 
+ // 共産主義: 近くの弱い仲間に少量の健康を分ける
+ shareToAllies(amount){
+  let given = 0;
+  for(let o of organisms){
+   if(o!==this && o.ideology==="red"){
+    let d = dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y);
+    if(d < 60 && o.health < 0.9){
+     let take = min(amount*0.4, 0.25 - o.health);
+     if(take>0){
+      o.health += take;
+      given += take;
+     }
+    }
+   }
+  }
+  // 自分のhealthから少し減らす（分配コスト）
+  this.health = max(0, this.health - given*0.6);
+  if(given>0) log("✦ red redistributed energy");
+ }
+
+ // 共産主義: 仲間がやられそうなとき援護（小回復）を呼ぶ
+ callForAid(){
+  for(let o of organisms){
+   if(o!==this && o.ideology==="red"){
+    let d = dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y);
+    if(d < 80 && o.health < 0.6){
+     o.health = min(1.2, o.health + 0.08);
+    }
+  }
+  }
+ }
+
  wander(){
   let a=noise(this.pos.x*0.01,this.pos.y*0.01,time*0.01)*TWO_PI*2;
   this.applyForce(p5.Vector.fromAngle(a).mult(0.08));
  }
 
  reproduce(){
-  if(this.health>1.2 && random()<0.003){
-   this.health/=2;
-   let childDNA={
-    size:this.dna.size+random(-1,1),
-    speed:this.dna.speed+random(-0.2,0.2),
-    sense:this.dna.sense+random(-10,10)
-      +this.memory.good*0.4-this.memory.bad*0.3,
-    hue:(this.dna.hue+random(-10,10)+360)%360
-   };
-   log("Birth + Mutation");
-   return new Organism(this.pos.x,this.pos.y,childDNA);
+  // 共産主義: 健康が十分に高ければ自然分裂的に増えるが確率は控えめ
+  if(this.ideology==="red"){
+   if(this.health>1.1 && random()<0.0035){
+    this.health/=2;
+    let childDNA={
+     size:this.dna.size+random(-1,1),
+     speed:this.dna.speed+random(-0.2,0.2),
+     sense:this.dna.sense+random(-10,10) + this.memory.good*0.3 - this.memory.bad*0.2,
+     hue:(this.dna.hue+random(-10,10)+360)%360
+    };
+    log("Birth (red) + Mutation");
+    return new Organism(this.pos.x,this.pos.y,childDNA);
+   }
+  }else{
+   // 資本主義: stash をためて再生産（投資的複製）
+   if(this.stash > 0.6 && random()<0.01){
+    this.stash *= 0.4; // 投資して消費
+    let childDNA={
+     size:this.dna.size+random(-1,1),
+     speed:this.dna.speed+random(-0.2,0.2),
+     sense:this.dna.sense+random(-10,10) + this.memory.good*0.5 - this.memory.bad*0.1,
+     hue:(this.dna.hue+random(-10,10)+360)%360
+    };
+    log("Birth (blue) - funded by stash");
+    return new Organism(this.pos.x,this.pos.y,childDNA);
+   }
   }
   return null;
  }
@@ -251,6 +385,11 @@ class Organism{
   fill(this.dna.hue,80,100,80);
   noStroke();
   ellipse(this.pos.x,this.pos.y,this.dna.size*0.7);
+  // stash を小さな円で表示（blueのみ）
+  if(this.ideology==="blue" && this.stash>0.02){
+   fill(200,80,90,80);
+   circle(this.pos.x,this.pos.y - this.dna.size, map(this.stash,0,2,2,8));
+  }
   colorMode(RGB,255);
  }
 }
@@ -259,7 +398,10 @@ class Organism{
    戦争
 ===================== */
 function startWar(){
- if(civilization<2) return;
+ if(civilization<2) {
+  log("War cannot start until civilization reaches Nation");
+  return;
+ }
  war=true;
  log("⚔ WAR STARTED");
 }
@@ -280,6 +422,19 @@ function log(t){
  l.innerHTML=t+"<br>"+l.innerHTML;
 }
 function windowResized(){resizeCanvas(windowWidth,windowHeight);}
+
+// 最低人口を保つ（初期5分間の保護）
+function ensureMinPopulation(minCount){
+ if(organisms.length >= minCount) return;
+ let need = minCount - organisms.length;
+ for(let i=0;i<need;i++){
+  let a = new Organism(random(width),random(height));
+  // なるべく思想バランス良く
+  a.ideology = (random()<0.5) ? "red" : "blue";
+  organisms.push(a);
+ }
+ log("Population protected: spawned " + need + " individuals");
+}
 </script>
 </body>
 </html>
