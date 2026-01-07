@@ -2,180 +2,190 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Biotope – Survival Stable Edition</title>
+<title>Ideology Territory War</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
 body{margin:0;background:#000;overflow:hidden;font-family:monospace}
-#ui{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);color:#0f0}
+#ui{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:#0f0}
+#cmd{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);width:240px}
 </style>
 </head>
 <body>
 <div id="ui">
 YEAR:<span id="year">0</span> |
-POP:<span id="pop">0</span> |
-FOOD:<span id="food">0</span>
+RED:<span id="red">0</span> |
+BLUE:<span id="blue">0</span> |
+WAR:<span id="war">OFF</span>
 </div>
+<input id="cmd" placeholder="> war / peace" />
 
 <script>
-/* ================= 世界 ================= */
-let organisms=[], foods=[];
-let time=0, year=0;
+/* ========= 世界 ========= */
+let people=[];
+let year=0, t=0;
+let war=false;
 
-/* ================= 食料 ================= */
-const FOOD_TYPES={
- plant:{heal:0.4,color:[80,255,120]},
- meat:{heal:0.7,color:[255,80,80]},
- omni:{heal:0.55,color:[200,200,120]}
+/* ========= 領土 ========= */
+const GRID=40;
+let cols, rows;
+let territory=[]; // red / blue
+
+/* ========= 思想 ========= */
+const IDEOLOGY={
+ red:{color:[255,80,80],bg:[255,150,150],birth:0.01,move:0.7},
+ blue:{color:[80,120,255],bg:[150,180,255],birth:0.015,move:1.0}
 };
 
-/* ================= 生物 ================= */
-class Organism{
- constructor(x,y,dna){
+/* ========= 個体 ========= */
+class Person{
+ constructor(x,y,side){
   this.pos=createVector(x,y);
   this.vel=p5.Vector.random2D();
-  this.acc=createVector();
-  this.age=0;
-  this.maxAge=random(2500,3500);
-  this.health=random(0.8,1);
-  this.cooldown=0;
-
-  this.dna=dna||{
-   size:random(8,12),
-   speed:random(1.2,2),
-   sense:random(80,130),
-   diet:random(["plant","meat","omni"]),
-   fertility:random(0.6,1.4), // 🧬 生殖欲
-   hue:random(360)
-  };
+  this.side=side;
+  this.health=random(0.7,1);
+  this.size=6;
  }
-
  update(){
-  this.age++;
-  this.cooldown=max(0,this.cooldown-1);
+  this.health-=0.00008;
 
-  /* 🌎 自然淘汰（超弱） */
-  this.health -= 0.00012 * pow(this.dna.size,0.5);
+  // 移動（戦争で侵攻）
+  if(war){
+   let target=this.findEnemyTerritory();
+   if(target) this.vel.add(p5.Vector.sub(target,this.pos).setMag(0.05));
+  }else{
+   this.vel.add(p5.Vector.random2D().mult(0.03));
+  }
 
-  this.forage();
-  this.vel.add(this.acc);
-  this.vel.limit(this.dna.speed);
+  this.vel.limit(IDEOLOGY[this.side].move);
   this.pos.add(this.vel);
-  this.acc.mult(0);
   this.edges();
- }
 
- forage(){
-  let best=null, d=this.dna.sense;
-  for(let i=foods.length-1;i>=0;i--){
-   let f=foods[i];
-   let dista=p5.Vector.dist(this.pos,f.pos);
-   if(dista<d){
-    d=dista; best=f;
-    if(dista<this.dna.size){
-     foods.splice(i,1);
-     let gain=FOOD_TYPES[f.type].heal;
-     if(this.dna.diet==="omni") gain*=1.1;
-     if(this.dna.diet!==f.type && f.type!=="omni") gain*=0.6;
-     this.health=min(1,this.health+gain);
-    }
+  // 繁殖（自領土が多いほど有利）
+  let land=this.controlledLand();
+  if(random()<IDEOLOGY[this.side].birth*(0.5+land) && this.health>0.6){
+   people.push(new Person(
+    this.pos.x+random(-8,8),
+    this.pos.y+random(-8,8),
+    this.side
+   ));
+   this.health-=0.08;
+  }
+
+  // 戦闘 & 占領
+  if(war) this.fightAndClaim();
+ }
+ controlledLand(){
+  let c=0;
+  for(let t of territory) if(t===this.side) c++;
+  return c/(cols*rows);
+ }
+ fightAndClaim(){
+  let cx=floor(this.pos.x/GRID);
+  let cy=floor(this.pos.y/GRID);
+  let idx=cx+cy*cols;
+  if(territory[idx]!==this.side){
+   if(random()<0.02){
+    territory[idx]=this.side;
    }
   }
-  if(best) this.applyForce(p5.Vector.sub(best.pos,this.pos).setMag(0.2));
-  else this.wander();
  }
-
- wander(){
-  let a=noise(this.pos.x*0.01,this.pos.y*0.01,time*0.01)*TWO_PI*2;
-  this.applyForce(p5.Vector.fromAngle(a).mult(0.15));
- }
-
- /* 🤝 接触繁殖（大量） */
- tryReproduce(other){
-  if(this.cooldown>0||other.cooldown>0) return;
-  if(this.health<0.55||other.health<0.55) return;
-
-  let desire=(this.health+other.health)*this.dna.fertility;
-  if(random()>0.08*desire) return;
-
-  let babies=floor(random(1,3+this.dna.fertility));
-  this.cooldown=200; other.cooldown=200;
-  this.health-=0.1; other.health-=0.1;
-
-  for(let i=0;i<babies;i++){
-   organisms.push(new Organism(
-    this.pos.x+random(-10,10),
-    this.pos.y+random(-10,10),
-    {
-     size:this.dna.size+random(-0.5,0.5),
-     speed:this.dna.speed+random(-0.15,0.15),
-     sense:this.dna.sense+random(-10,10),
-     diet:random([this.dna.diet,other.dna.diet,"omni"]),
-     fertility:constrain(this.dna.fertility+random(-0.1,0.1),0.4,1.6),
-     hue:(this.dna.hue+random(-8,8)+360)%360
-    }
-   ));
+ findEnemyTerritory(){
+  for(let i=0;i<territory.length;i++){
+   if(territory[i]!==this.side){
+    let x=(i%cols)*GRID+GRID/2;
+    let y=floor(i/cols)*GRID+GRID/2;
+    return createVector(x,y);
+   }
   }
+  return null;
  }
-
- applyForce(f){this.acc.add(f)}
  edges(){
   if(this.pos.x<0)this.pos.x=width;
   if(this.pos.x>width)this.pos.x=0;
   if(this.pos.y<0)this.pos.y=height;
   if(this.pos.y>height)this.pos.y=0;
  }
- dead(){return this.health<=0||this.age>this.maxAge}
  show(){
-  colorMode(HSB,360,100,100,100);
-  fill(this.dna.hue,80,100,90);
+  let c=IDEOLOGY[this.side].color;
+  fill(c[0],c[1],c[2],200);
   noStroke();
-  circle(this.pos.x,this.pos.y,this.dna.size*2);
-  colorMode(RGB,255);
+  circle(this.pos.x,this.pos.y,this.size);
  }
+ dead(){return this.health<=0}
 }
 
-/* ================= 食料生成 ================= */
-function spawnFood(){
- let t=random()<0.5?"plant":random()<0.7?"omni":"meat";
- foods.push({pos:createVector(random(width),random(height)),type:t});
-}
-
-/* ================= p5 ================= */
+/* ========= 初期化 ========= */
 function setup(){
  createCanvas(windowWidth,windowHeight);
- for(let i=0;i<250;i++) spawnFood();
- for(let i=0;i<16;i++) organisms.push(new Organism(random(width),random(height)));
+ cols=floor(width/GRID);
+ rows=floor(height/GRID);
+ territory=new Array(cols*rows);
+
+ for(let y=0;y<rows;y++){
+  for(let x=0;x<cols;x++){
+   territory[x+y*cols]=(x<cols/2)?"red":"blue";
+  }
+ }
+
+ for(let i=0;i<30;i++){
+  people.push(new Person(random(width/2),random(height),"red"));
+  people.push(new Person(random(width/2,width),random(height),"blue"));
+ }
+
+ document.getElementById("cmd").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){
+   if(e.target.value==="war") war=true;
+   if(e.target.value==="peace") endWar();
+   e.target.value="";
+  }
+ });
 }
 
+/* ========= 戦争終了処理 ========= */
+function endWar(){
+ war=false;
+ let r=territory.filter(t=>t==="red").length;
+ let b=territory.filter(t=>t==="blue").length;
+ let winner=r>b?"red":"blue";
+ IDEOLOGY[winner].birth*=1.1;
+ IDEOLOGY[winner].move*=1.05;
+}
+
+/* ========= 描画 ========= */
 function draw(){
- time++; if(time%60===0) year++;
- background(0,25,15);
+ t++; if(t%60===0) year++;
+ background(0);
+
+ // 領土描画
+ for(let y=0;y<rows;y++){
+  for(let x=0;x<cols;x++){
+   let t=territory[x+y*cols];
+   let c=IDEOLOGY[t].bg;
+   fill(c[0],c[1],c[2],60);
+   noStroke();
+   rect(x*GRID,y*GRID,GRID,GRID);
+  }
+ }
+
+ let r=0,b=0;
+ for(let i=people.length-1;i>=0;i--){
+  let p=people[i];
+  p.update(); p.show();
+  if(p.side==="red") r++; else b++;
+  if(p.dead()) people.splice(i,1);
+ }
+
+ // 自然戦争
+ if(!war && r+b>200 && random()<0.002) war=true;
 
  document.getElementById("year").innerText=year;
- document.getElementById("pop").innerText=organisms.length;
- document.getElementById("food").innerText=foods.length;
-
- if(random()<0.45) spawnFood();
-
- for(let f of foods){
-  let c=FOOD_TYPES[f.type].color;
-  fill(c[0],c[1],c[2],150); noStroke();
-  circle(f.pos.x,f.pos.y,5);
- }
-
- for(let i=organisms.length-1;i>=0;i--){
-  let o=organisms[i];
-  o.update(); o.show();
-  for(let j=i-1;j>=0;j--){
-   if(p5.Vector.dist(o.pos,organisms[j].pos)<o.dna.size*2){
-    o.tryReproduce(organisms[j]);
-   }
-  }
-  if(o.dead()) organisms.splice(i,1);
- }
+ document.getElementById("red").innerText=r;
+ document.getElementById("blue").innerText=b;
+ document.getElementById("war").innerText=war?"ON":"OFF";
 }
 
 function windowResized(){resizeCanvas(windowWidth,windowHeight)}
 </script>
 </body>
 </html>
+
