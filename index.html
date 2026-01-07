@@ -1,17 +1,19 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <title>NovaNotions – Ideology Biotope Stable</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min. js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
 body{margin:0;background:#000;font-family:monospace;overflow:hidden}
-#ui{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);width:90%;text-align:center;z-index:10}
-input{width:60%;padding:10px;background: rgba(0,0,0,. 8);border:1px solid #0f0;color:#0f0}
+#ui{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+width:90%;text-align:center;z-index:10}
+input{width:60%;padding:10px;background:rgba(0,0,0,.8);
+border:1px solid #0f0;color:#0f0}
 #stats{color:#aaa;font-size:12px;margin-bottom:4px}
-#log{position:absolute;top:10px;left: 10px;width:420px;height:260px;overflow: auto;
-font-size:11px;color:#0f0;background: rgba(0,0,0,. 6);border:1px solid #033;padding:5px}
+#log{position:absolute;top:10px;left:10px;width:420px;height:260px;
+overflow:auto;font-size:11px;color:#0f0;
+background:rgba(0,0,0,.6);border:1px solid #033;padding:5px}
 </style>
 </head>
 
@@ -19,13 +21,13 @@ font-size:11px;color:#0f0;background: rgba(0,0,0,. 6);border:1px solid #033;padd
 <div id="log"></div>
 <div id="ui">
 <div id="stats">
-TIME: <span id="timer">00:00</span> |
+TIME:<span id="timer">00:00</span> |
 YEAR:<span id="year">0</span> |
 POP:<span id="pop">0</span> |
-CIV: <span id="civ">Hunter-Gatherer</span> |
+CIV:<span id="civ">Hunter-Gatherer</span> |
 WAR:<span id="warstat">NO</span>
 </div>
-<input id="cmd" placeholder="> genesis / evolve / war / meteor / reset">
+<input id="cmd" placeholder="> genesis / war / reset">
 </div>
 
 <script>
@@ -36,20 +38,11 @@ let organisms=[],foods=[],nations=[];
 let time=0,epoch=0,war=false,civilization=0;
 let fertility=1,startTime=0;
 const CIV_NAMES=["Hunter-Gatherer","Agriculture","Nation"];
-const MIN_RUN_MS=1000*60*5;
-const PROTECTED_MS=1000*60*2;
+let cmd,logDiv,logBuffer=[];
 
-/* 軽量化制御 */
-let updatePhase=0;
-function phased(n){return frameCount%n===updatePhase}
-
-/* ログ軽量化 */
-let logBuffer=[];
-let logDiv=null;
-
-/* 食料定義 */
+/* 食料 */
 const FOOD_TYPES={
- plant:{color:[100,255,100],energy:0. 25},
+ plant:{color:[100,255,100],energy:0.25},
  meat:{color:[255,80,80],energy:0.6},
  farm:{color:[180,255,120],energy:0.4}
 };
@@ -59,14 +52,17 @@ const FOOD_TYPES={
 ===================== */
 function setup(){
  createCanvas(windowWidth,windowHeight);
+ cmd=document.getElementById("cmd");
  logDiv=document.getElementById("log");
  spawnFood(200);
  startTime=millis();
  runCommand("genesis");
- if(organisms[0]) organisms[0].protectedUntil=millis()+PROTECTED_MS;
 
  cmd.addEventListener("keydown",e=>{
-  if(e. key==="Enter"){runCommand(cmd.value);cmd.value="";}
+  if(e.key==="Enter"){
+   runCommand(cmd.value);
+   cmd.value="";
+  }
  });
 }
 
@@ -74,20 +70,18 @@ function setup(){
    メインループ
 ===================== */
 function draw(){
+ background(0,30,10);
  time++; if(time%60===0) epoch++;
- updatePhase=(updatePhase+1)%4;
-
- background(0,30*fertility,10);
-
- let elapsed=millis()-startTime;
- timer. innerText=nf(floor(elapsed/60000),2)+":"+nf(floor(elapsed/1000)%60,2);
 
  if(organisms.length>40&&civilization===0) civilization=1;
  if(organisms.length>120&&civilization===1) civilization=2;
 
- year. innerText=epoch;
- pop. innerText=organisms.length;
- civ. innerText=CIV_NAMES[civilization];
+ let elapsed=millis()-startTime;
+ timer.innerText=
+  nf(floor(elapsed/60000),2)+":"+nf(floor(elapsed/1000)%60,2);
+ year.innerText=epoch;
+ pop.innerText=organisms.length;
+ civ.innerText=CIV_NAMES[civilization];
  warstat.innerText=war?"YES":"NO";
 
  if(random()<0.12*fertility){
@@ -98,7 +92,7 @@ function draw(){
 
  noStroke();
  for(let f of foods){
-  let c=FOOD_TYPES[f.type]. color;
+  let c=FOOD_TYPES[f.type].color;
   fill(c[0],c[1],c[2],140);
   circle(f.pos.x,f.pos.y,4);
  }
@@ -109,243 +103,138 @@ function draw(){
   o.update();
   o.show();
   if(o.dead()){
-   if(random()<0.5) foods.push({pos:o.pos. copy(),type:"meat"});
+   if(random()<0.5)
+    foods.push({pos:o.pos.copy(),type:"meat"});
    organisms.splice(i,1);
-   fertility=min(1,fertility+0.001);
   }else{
    o.ideology==="red"?red++:blue++;
   }
  }
 
- if(elapsed<MIN_RUN_MS) ensureMinPopulation(8);
-
- if(! war&&organisms.length>100&&elapsed>=MIN_RUN_MS) startWar();
+ if(!war&&organisms.length>100) startWar();
  if(war){
-  if(red<=10&&blue>10) endWar("red");
-  if(blue<=10&&red>10) endWar("blue");
+  if(red<10||blue<10) endWar();
  }
 
- if(time%600===0&&organisms.length>30) formNations();
- if(time%180===0) nations.forEach(n=>nTick(n));
-
- if(organisms.length>160){
-  organisms.length=160;
-  log("⚠ population capped");
- }
-
- if(frameCount%20===0){
+ if(frameCount%20===0)
   logDiv.innerHTML=logBuffer.slice().reverse().join("<br>");
- }
 }
 
 /* =====================
    生物
 ===================== */
 class Organism{
- constructor(x,y,dna){
+ constructor(x,y){
   this.pos=createVector(x,y);
-  this.vel=p5.Vector.random2D().mult(0.5);
+  this.vel=p5.Vector.random2D().mult(0.6);
   this.acc=createVector();
-
   this.ideology=random()<0.5?"red":"blue";
-  this. pos.x=this.ideology==="red"?random(width*0.05,width*0.45):random(width*0.55,width*0.95);
   this.baseHue=this.ideology==="red"?0:220;
-  this.ideologyStrength=random(0.35,1);
-
-  this.dna=dna||{size:random(8,15),speed:random(0.6,1.2),sense:random(60,110)};
-  this.diet=random(["herbivore","carnivore","omnivore"]);
-  this.sex=random()<0.5?"M":"F";
-
+  this.size=random(8,14);
   this.health=1;
   this.age=0;
   this.maxAge=random(4000,8000);
-
-  this.matingCooldown=0;
-  this.pregnant=false;
-  this.gestation=0;
-  this. gestationPeriod=floor(random(600,1200));
-
-  this.stash=0;
-  this.infected=false;
-  this.virusLoad=0;
-  this.immunity=random(0,0.6);
-
-  this.protectedUntil=undefined;
  }
 
  update(){
   this.age++;
-  this.health-=0.0005*pow(this. dna.size,0.6);
+  this.health-=0.0004;
 
-  if(this.infected&&phased(4)){
-   this.health-=this.virusLoad*0.0007*(1-this.immunity*0.6);
-   if(random()<0.001){
-    this.virusLoad=max(0,this.virusLoad-0.05);
-    if(this.virusLoad<0.05){this.infected=false;}
-   }
-  }
+  this.forage();
+  if(war) this.acc.add(p5.Vector.random2D().mult(0.05));
 
-  if(this.pregnant){
-   this.gestation++;
-   if(this.gestation>=this. gestationPeriod) this.giveBirth();
-  }else if(this.matingCooldown<=0&&this.sex==="F"&&random()<0.002){
-   this.seekMate();
-  }else{
-   this.forage();
-  }
-
-  this.vel.add(this.acc).limit(this.dna.speed*(war?1. 2:1));
+  this.vel.add(this.acc).limit(1);
   this.pos.add(this.vel);
-  this.acc.set(0,0);
+  this.acc.mult(0);
   this.edges();
-
-  if(phased(4)){
-   for(let o of organisms){
-    if(o! ==this&&dist(this.pos. x,this.pos.y,o.pos.x,o. pos.y)<8){
-     if(this.infected&&! o.infected&&random()<0.0008) o.infect(this. virusLoad*0.6);
-    }
-   }
-  }
-
-  if(this.protectedUntil&&millis()<this.protectedUntil){
-   this.health=max(this.health,0. 15);
-   if(this.infected) this.virusLoad=max(0,this.virusLoad-0.02);
-  }
-
-  if(this.matingCooldown>0) this.matingCooldown--;
  }
-
- infect(l){this.infected=true;this.virusLoad=constrain(this.virusLoad+l,0,1)}
 
  forage(){
-  let nearest=null,dmin=this.dna.sense;
+  let nearest=null,dmin=80;
   for(let i=foods.length-1;i>=0;i--){
-   let d=p5.Vector.dist(this. pos,foods[i].pos);
+   let d=p5.Vector.dist(this.pos,foods[i].pos);
    if(d<dmin){
     dmin=d;nearest=foods[i];
-    if(d<this.dna.size){
-     let gain=FOOD_TYPES[foods[i].type].energy;
-     this.health+=gain;
-     foods. splice(i,1);
+    if(d<this.size){
+     this.health+=FOOD_TYPES[foods[i].type].energy;
+     foods.splice(i,1);
     }
    }
   }
-  if(nearest) this.acc.add(this.seek(nearest.pos));
+  if(nearest)
+   this.acc.add(p5.Vector.sub(nearest.pos,this.pos)
+    .setMag(0.05));
  }
 
- seekMate(){
-  let tries=0;
-  for(let o of organisms){
-   if(++tries>12) break;
-   if(o! ==this&&o.sex==="M"&&o.ideology===this.ideology){
-    let d=dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y);
-    if(d<this.dna.sense&&this.health>0.9&&o.health>0.8){
-     this.becomePregnant();
-     o.matingCooldown=600;
-     this.matingCooldown=600;
-     break;
-    }
-   }
-  }
- }
-
- becomePregnant(){
-  this.pregnant=true;
-  this.gestation=0;
-  log("♥ pregnancy");
- }
-
- giveBirth(){
-  this.pregnant=false;
-  let child=new Organism(this. pos.x+random(-6,6),this.pos.y+random(-6,6));
-  child.ideology=this.ideology;
-  child.baseHue=this.baseHue;
-  child.ideologyStrength=this.ideologyStrength+random(-0.1,0.1);
-  organisms.push(child);
-  log("✳ birth");
- }
-
- dead(){
-  if(this.protectedUntil&&millis()<this.protectedUntil) return false;
-  return this.health<=0||this.age>this.maxAge;
- }
-
- seek(t){
-  let d=p5.Vector.sub(t,this.pos);
-  d.setMag(this.dna.speed);
-  return p5.Vector.sub(d,this.vel).limit(0.12);
- }
+ dead(){return this.health<=0||this.age>this.maxAge}
 
  edges(){
-  if(this.ideology==="red") this.pos.x=constrain(this.pos.x,0,width*0.55);
-  else this.pos.x=constrain(this.pos.x,width*0.45,width);
-  this.pos.y=constrain(this. pos.y,0,height);
+  if(this.ideology==="red")
+   this.pos.x=constrain(this.pos.x,0,width*0.55);
+  else
+   this.pos.x=constrain(this.pos.x,width*0.45,width);
+  this.pos.y=constrain(this.pos.y,0,height);
  }
 
  show(){
-  colorMode(HSB,360,100,100,100);
-  fill(this.baseHue,constrain(this.ideologyStrength*100,30,100),90,95);
-  noStroke();
-  ellipse(this.pos.x,this.pos.y,this. dna.size*0.8);
+  colorMode(HSB,360,100,100);
+  fill(this.baseHue,90,90);
+  ellipse(this.pos.x,this.pos.y,this.size);
   colorMode(RGB,255);
  }
 }
 
 /* =====================
-   コマンド
+   国家・戦争
 ===================== */
-function runCommand(cmd){
- cmd=cmd.toLowerCase().trim();
- let elapsed=millis()-startTime;
- if(cmd==="genesis"){
-  for(let i=0;i<10;i++) organisms.push(new Organism(random(width),random(height)));
-  log("> genesis");
- }
- else if(cmd==="evolve"){
-  organisms.forEach(o=>{o. dna.speed=constrain(o.dna.speed+random(-0.3,0.3),0.4,3);});
-  log("> evolve");
- }
- else if(cmd==="meteor"){
-  if(elapsed<MIN_RUN_MS){log("☄ METEOR LOCKED");return;}
-  organisms=organisms.slice(0,floor(organisms.length/2));
-  fertility=0. 2;
-  log("☄ METEOR IMPACT");
- }
- else if(cmd==="war"){
-  if(elapsed<MIN_RUN_MS){log("⚠ War locked");return;}
-  startWar();
- }
- else if(cmd==="reset") location.reload();
+function startWar(){
+ if(civilization<2) return;
+ war=true;
+ log("⚔ WAR STARTED");
+}
+function endWar(){
+ war=false;
+ log("🏳 WAR ENDED");
 }
 
 /* =====================
-   国家・戦争
+   コマンド
 ===================== */
-function formNations(){}
-function nTick(n){}
-
-function startWar(){
- if(civilization<2) return;
- war=true; log("⚔ WAR STARTED");
-}
-function endWar(l){
- war=false; log("🏳 "+l+" surrendered");
+function runCommand(c){
+ c=c.trim();
+ if(c==="genesis"){
+  if(organisms.length===0){
+   for(let i=0;i<16;i++)
+    organisms.push(new Organism(random(width),random(height)));
+   log("🌱 genesis");
+  }
+ }
+ if(c==="war") startWar();
+ if(c==="reset"){
+  organisms=[];foods=[];nations=[];
+  civilization=0;war=false;
+  spawnFood(200);
+  runCommand("genesis");
+  log("↺ reset");
+ }
 }
 
 /* =====================
    補助
 ===================== */
 function spawnFood(n){
- for(let i=0;i<n;i++) foods.push({pos:createVector(random(width),random(height)),type:"plant"});
+ for(let i=0;i<n;i++)
+  foods.push({pos:createVector(random(width),random(height)),
+              type:"plant"});
 }
 function log(t){
  logBuffer.push(t);
  if(logBuffer.length>40) logBuffer.shift();
 }
-function ensureMinPopulation(n){
- while(organisms.length<n) organisms.push(new Organism(random(width),random(height)));
+function windowResized(){
+ resizeCanvas(windowWidth,windowHeight);
 }
-function windowResized(){resizeCanvas(windowWidth,windowHeight)}
 </script>
 </body>
 </html>
+
