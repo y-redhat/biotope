@@ -1,330 +1,296 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <title>NovaNotions: Genesis Protocol</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <style>
-    body { margin: 0; background: #000; overflow: hidden; font-family: 'Courier New', monospace; }
-    #ui {
-      position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-      width: 80%; text-align: center; z-index: 10; pointer-events: none;
-    }
-    input {
-      pointer-events: auto; width: 60%; padding: 15px; background: rgba(0,0,0,0.8);
-      border: 1px solid #444; color: #0f0; font-size: 16px; outline: none;
-      box-shadow: 0 0 10px rgba(0,255,0,0.2);
-    }
-    #stats {
-      color: #aaa; font-size: 12px; margin-bottom: 5px; text-shadow: 0 0 2px #000;
-    }
-    .warning { color: red !important; animation: blink 1s infinite; }
-    @keyframes blink { 50% { opacity: 0.5; } }
-  </style>
+<meta charset="UTF-8">
+<title>NovaNotions Biotope – Civilization Edition</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+
+<style>
+body {
+  margin:0;
+  background:#000;
+  overflow:hidden;
+  font-family: monospace;
+}
+#ui {
+  position:absolute;
+  bottom:10px;
+  left:50%;
+  transform:translateX(-50%);
+  width:90%;
+  text-align:center;
+  z-index:10;
+}
+input {
+  width:60%;
+  padding:10px;
+  background:rgba(0,0,0,.8);
+  border:1px solid #0f0;
+  color:#0f0;
+}
+#stats {
+  color:#aaa;
+  font-size:12px;
+  margin-bottom:4px;
+}
+#log {
+  position:absolute;
+  top:10px;
+  left:10px;
+  width:300px;
+  height:200px;
+  overflow:auto;
+  font-size:11px;
+  color:#0f0;
+  background:rgba(0,0,0,.6);
+  border:1px solid #033;
+  padding:5px;
+}
+</style>
 </head>
+
 <body>
+<div id="log"></div>
 
 <div id="ui">
-  <div id="stats">YEAR: <span id="year">0</span> | FERTILITY: <span id="fert">100</span>% | POPULATION: <span id="pop">0</span></div>
-  <input type="text" id="cmd" placeholder="> コマンド: evolve, virus, war, religion, meteor, reset..." autofocus>
+  <div id="stats">
+    YEAR:<span id="year">0</span> |
+    POP:<span id="pop">0</span> |
+    CIV:<span id="civ">Hunter-Gatherer</span>
+  </div>
+  <input id="cmd" placeholder="> genesis / evolve / war / religion / meteor / reset">
 </div>
 
 <script>
-// --- 設定パラメータ ---
+/* =====================
+   グローバル状態
+===================== */
 let organisms = [];
 let foods = [];
-let viruses = [];
-let fertility = 1.0; // 大地の肥沃度 (1.0 = 緑豊か, 0.0 = 砂漠)
 let time = 0;
 let epoch = 0;
 
-// クライバーの法則定数 (代謝率 = 質量^0.75)
-const KLEIBER_EXPONENT = 0.75;
+let fertility = 1;
+let civilization = 0; 
+// 0:採集 1:農耕 2:国家
 
-function setup() {
-  createCanvas(windowWidth, windowHeight);
+const CIV_NAMES = ["Hunter-Gatherer","Agriculture","Nation"];
+
+function setup(){
+  createCanvas(windowWidth,windowHeight);
   spawnFood(200);
-  
-  // 入力処理
-  document.getElementById('cmd').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { runCommand(e.target.value); e.target.value = ''; }
+  runCommand("genesis");
+
+  const input=document.getElementById("cmd");
+  input.focus();
+  input.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){
+      runCommand(input.value);
+      input.value="";
+      input.focus();
+    }
   });
 }
 
-function draw() {
-  // --- 環境描画: 肥沃度によって背景色が変化 ---
-  // 緑(豊穣) -> 茶色(砂漠) -> 赤黒(死の世界)
-  let bgColor = lerpColor(color(20, 10, 5), color(0, 30, 10), fertility);
-  if (fertility <= 0.1) bgColor = color(30, 20, 10); // 完全砂漠
-  background(bgColor);
-  
-  // 年数経過
+function draw(){
   time++;
-  if (time % 60 === 0) epoch++;
-  
-  // --- 統計更新 ---
-  document.getElementById('year').innerText = epoch;
-  document.getElementById('fert').innerText = Math.floor(fertility * 100);
-  document.getElementById('pop').innerText = organisms.length;
-  if (fertility < 0.2) document.getElementById('stats').classList.add('warning');
-  else document.getElementById('stats').classList.remove('warning');
+  if(time%60===0) epoch++;
 
-  // --- 食糧システム (ロジスティック的な成長) ---
-  // 肥沃度が残っている場合のみ草が生える
-  if (random(1) < 0.1 * fertility && foods.length < 500) {
-    foods.push(createVector(random(width), random(height)));
-  }
+  background(0,30*fertility,10);
 
-  // 餌の描画
+  // 文明進化条件
+  if(organisms.length>40 && civilization===0) civilization=1;
+  if(organisms.length>120 && civilization===1) civilization=2;
+
+  // UI更新
+  year.innerText=epoch;
+  pop.innerText=organisms.length;
+  civ.innerText=CIV_NAMES[civilization];
+
+  // 食料生成
+  if(random()<0.15*fertility) foods.push(createVector(random(width),random(height)));
+
+  // 食料描画
+  fill(100,255,100,120);
   noStroke();
-  fill(100, 255, 100, 150 * fertility);
-  drawingContext.shadowBlur = 5;
-  drawingContext.shadowColor = '#0f0';
-  for (let f of foods) ellipse(f.x, f.y, 4, 4);
-  drawingContext.shadowBlur = 0;
+  for(let f of foods) circle(f.x,f.y,4);
 
-  // --- 生物の処理 ---
-  for (let i = organisms.length - 1; i >= 0; i--) {
-    let o = organisms[i];
+  // 生物更新
+  for(let i=organisms.length-1;i>=0;i--){
+    let o=organisms[i];
     o.update();
     o.show();
-    
-    // 老死・餓死判定
-    if (o.dead()) {
-      // 死ぬと少しだけ大地に養分を返す(循環)
-      if (fertility < 1.0) fertility += 0.0005;
-      organisms.splice(i, 1);
-      // 死骸エフェクト(簡略)
-      fill(100); ellipse(o.pos.x, o.pos.y, o.r, o.r);
-    } else {
-      // 繁殖
-      let child = o.reproduce();
-      if (child) organisms.push(child);
+    if(o.dead()){
+      organisms.splice(i,1);
+      fertility=min(1,fertility+0.001);
+    }else{
+      let child=o.reproduce();
+      if(child) organisms.push(child);
     }
   }
-
-  // --- 自然災害(過剰捕食による砂漠化) ---
-  // 人口過多になると肥沃度が急激に下がる
-  if (organisms.length > 150) {
-    fertility -= 0.001; 
-  } else if (organisms.length < 50 && fertility < 1.0) {
-    fertility += 0.0001; // 人口が減ればゆっくり回復
-  }
-  fertility = constrain(fertility, 0, 1);
 }
 
-// --- コマンドシステム ---
-function runCommand(val) {
-  val = val.toLowerCase().trim();
-  if (val === 'genesis') { // 創世記: 最初のつがい
-    for(let i=0; i<2; i++) organisms.push(new Organism(random(width), random(height)));
-  } 
-  else if (val === 'evolve') { // 進化促進: 移動速度とサイズがランダム変異
-    organisms.forEach(o => { o.dna.speed += random(-1, 1); o.dna.size += random(-2, 2); });
+/* =====================
+   コマンド
+===================== */
+function runCommand(cmd){
+  cmd=cmd.trim().toLowerCase();
+  if(cmd==="genesis"){
+    for(let i=0;i<8;i++)
+      organisms.push(new Organism(random(width),random(height)));
   }
-  else if (val === 'virus') { // パンデミック: ランダムに感染
-    if(organisms.length > 0) organisms[floor(random(organisms.length))].infected = true;
+  if(cmd==="evolve"){
+    organisms.forEach(o=>{
+      o.dna.speed=constrain(o.dna.speed+random(-0.5,0.5),0.5,5);
+      o.dna.size=constrain(o.dna.size+random(-1,1),5,25);
+    });
   }
-  else if (val === 'war') { // 国家形成: 2つの派閥に分けて殺し合い
-    organisms.forEach((o, i) => o.faction = (i % 2 === 0) ? 'A' : 'B');
+  if(cmd==="meteor"){
+    organisms=organisms.slice(0,floor(organisms.length/2));
+    fertility=0.2;
+    log("☄ METEOR IMPACT");
   }
-  else if (val === 'religion') { // 宗教: 全員が画面中央を「聖地」として巡礼する
-    organisms.forEach(o => o.religionMode = true);
-  }
-  else if (val === 'meteor') { // 自然災害: メテオ
-    organisms = organisms.slice(0, floor(organisms.length / 2)); // 50%死滅
-    fertility = 0.1; // 環境破壊
-  }
-  else if (val === 'reset') {
-    organisms = []; foods = []; fertility = 1.0; epoch = 0; spawnFood(200);
+  if(cmd==="reset"){
+    organisms=[];foods=[];fertility=1;epoch=0;civilization=0;
+    spawnFood(200);
   }
 }
 
-function spawnFood(n) {
-  for(let i=0; i<n; i++) foods.push(createVector(random(width), random(height)));
-}
+/* =====================
+   生物クラス
+===================== */
+class Organism{
+  constructor(x,y,dna){
+    this.pos=createVector(x,y);
+    this.vel=p5.Vector.random2D();
+    this.acc=createVector();
 
-// --- 生物クラス ---
-class Organism {
-  constructor(x, y, dna) {
-    this.pos = createVector(x, y);
-    this.vel = p5.Vector.random2D();
-    this.acc = createVector(0, 0);
-    
-    // DNA: [サイズ, スピード, 感知範囲]
-    this.dna = dna || { size: random(8, 15), speed: random(2, 4), sense: random(50, 100) };
-    this.r = this.dna.size;
-    
-    // ライフサイクル変数
-    this.health = 1.0; 
-    this.age = 0;
-    this.maxAge = random(800, 1200); // 寿命
-    this.infected = false;
-    this.faction = null; // 国家/派閥
-    this.religionMode = false;
+    // DNA（色遺伝含む）
+    this.dna=dna||{
+      size:random(8,15),
+      speed:random(1.5,3),
+      sense:random(50,90),
+      hue:random(360)
+    };
+
+    this.health=1;
+    this.age=0;
+    this.maxAge=random(800,1200);
   }
 
-  update() {
+  update(){
     this.age++;
-    
-    // --- 行動ロジック ---
-    if (this.religionMode) {
-      // 聖地巡礼 (中央へ集まる)
-      let center = createVector(width/2, height/2);
-      this.applyForce(this.seek(center).mult(0.5));
-    } else if (this.faction) {
-      // 戦争モード (敵対派閥を追う)
-      let enemy = this.findNearestEnemy();
-      if (enemy) this.applyForce(this.seek(enemy.pos).mult(2));
-      else this.forage();
-    } else {
-      // 通常モード (餌を探す)
+
+    // 文明別行動
+    if(civilization===2){
+      let center=createVector(width/2,height/2);
+      this.applyForce(this.seek(center).mult(0.3));
+    }else{
       this.forage();
     }
 
-    // --- 生物物理 ---
     this.vel.add(this.acc);
     this.vel.limit(this.dna.speed);
     this.pos.add(this.vel);
     this.acc.mult(0);
-    this.edges();
 
-    // --- エネルギー代謝 (クライバーの法則) ---
-    // サイズが大きいほどエネルギー効率は良いが、絶対量は多く必要
-    // 感染していると減少が早い
-    let metabolicRate = 0.005 * pow(this.r, KLEIBER_EXPONENT) * 0.2; 
-    if (this.infected) metabolicRate *= 3; // ウィルスによる衰弱
-    this.health -= metabolicRate;
-    
-    // ウィルス拡散
-    if (this.infected) this.spreadVirus();
+    this.health-=0.003*pow(this.dna.size,0.75);
+    this.edges();
   }
 
-  forage() {
-    let nearest = null;
-    let dMax = this.dna.sense;
-    
-    // 最寄りの餌を探す
-    for (let i = foods.length - 1; i >= 0; i--) {
-      let d = dist(this.pos.x, this.pos.y, foods[i].x, foods[i].y);
-      if (d < dMax) {
-        dMax = d;
-        nearest = foods[i];
-        if (d < this.r) { // 食べる
-          foods.splice(i, 1);
-          this.health += 0.3; // 回復
-          // 土地への負荷: 食べると少しだけ肥沃度が下がる
-          fertility -= 0.0001; 
+  forage(){
+    let nearest=null;
+    let dmin=this.dna.sense;
+    for(let i=foods.length-1;i>=0;i--){
+      let d=p5.Vector.dist(this.pos,foods[i]);
+      if(d<dmin){
+        dmin=d;
+        nearest=foods[i];
+        if(d<this.dna.size){
+          foods.splice(i,1);
+          this.health+=0.3;
+          fertility-=0.0005;
         }
       }
     }
-    
-    if (nearest) this.applyForce(this.seek(nearest));
+    if(nearest) this.applyForce(this.seek(nearest));
     else this.wander();
   }
 
-  wander() {
-    // パーリンノイズで有機的な動き
-    let angle = noise(this.pos.x * 0.01, this.pos.y * 0.01, time * 0.01) * TWO_PI * 2;
-    let force = p5.Vector.fromAngle(angle);
-    this.applyForce(force.mult(0.1));
-  }
-  
-  findNearestEnemy() {
-    // 敵対派閥を探すロジック（簡易）
-    for (let other of organisms) {
-      if (other !== this && other.faction && other.faction !== this.faction) {
-        if (dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y) < this.dna.sense) {
-          if (dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y) < this.r * 2) {
-            other.health -= 0.1; // 攻撃
-            this.health -= 0.05; // 反撃ダメージ
-          }
-          return other;
-        }
-      }
-    }
-    return null;
+  wander(){
+    let a=noise(this.pos.x*0.01,this.pos.y*0.01,time*0.01)*TWO_PI*2;
+    this.applyForce(p5.Vector.fromAngle(a).mult(0.2));
   }
 
-  spreadVirus() {
-    for (let other of organisms) {
-      if (other !== this && !other.infected) {
-        let d = dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
-        if (d < this.r * 2) {
-          if (random(1) < 0.1) other.infected = true; // 感染確率
-        }
-      }
-    }
-  }
-
-  seek(target) {
-    let desired = p5.Vector.sub(target, this.pos);
-    desired.setMag(this.dna.speed);
-    let steer = p5.Vector.sub(desired, this.vel);
-    steer.limit(0.1);
-    return steer;
-  }
-
-  applyForce(force) { this.acc.add(force); }
-
-  reproduce() {
-    // 健康で、ある程度年齢がいっていて、ランダム確率
-    if (this.health > 1.2 && random(1) < 0.005) {
-      this.health /= 2;
-      // DNAの突然変異
-      let newDna = {
-        size: this.dna.size + random(-1, 1),
-        speed: this.dna.speed + random(-0.5, 0.5),
-        sense: this.dna.sense + random(-10, 10)
+  reproduce(){
+    if(this.health>1.2 && random()<0.004){
+      this.health/=2;
+      let childDNA={
+        size:this.dna.size+random(-1,1),
+        speed:this.dna.speed+random(-0.3,0.3),
+        sense:this.dna.sense+random(-10,10),
+        hue:(this.dna.hue+random(-10,10)+360)%360
       };
-      return new Organism(this.pos.x, this.pos.y, newDna);
+      log(`Mutation → size:${childDNA.size.toFixed(1)} speed:${childDNA.speed.toFixed(1)}`);
+      return new Organism(this.pos.x,this.pos.y,childDNA);
     }
     return null;
   }
 
-  dead() { return (this.health < 0 || this.age > this.maxAge); }
+  dead(){ return this.health<=0||this.age>this.maxAge; }
 
-  edges() {
-    if (this.pos.x < -this.r) this.pos.x = width + this.r;
-    if (this.pos.y < -this.r) this.pos.y = height + this.r;
-    if (this.pos.x > width + this.r) this.pos.x = -this.r;
-    if (this.pos.y > height + this.r) this.pos.y = -this.r;
+  seek(t){
+    let d=p5.Vector.sub(t,this.pos);
+    d.setMag(this.dna.speed);
+    return p5.Vector.sub(d,this.vel).limit(0.1);
   }
 
-  show() {
-    // 色の決定
-    let c;
-    if (this.infected) c = color(150, 0, 255); // ウィルス感染色(紫)
-    else if (this.faction === 'A') c = color(0, 150, 255); // 国家A(青)
-    else if (this.faction === 'B') c = color(255, 100, 0); // 国家B(橙)
-    else c = color(255, 255, 255); // 野生(白)
+  applyForce(f){ this.acc.add(f); }
 
-    // 老化で色がくすむ
-    let alpha = map(this.age, 0, this.maxAge, 255, 50);
-    
-    // 発光表現
-    drawingContext.shadowBlur = 10;
-    drawingContext.shadowColor = c;
-    
+  edges(){
+    if(this.pos.x<0) this.pos.x=width;
+    if(this.pos.x>width) this.pos.x=0;
+    if(this.pos.y<0) this.pos.y=height;
+    if(this.pos.y>height) this.pos.y=0;
+  }
+
+  show(){
+    colorMode(HSB,360,100,100,100);
+    let pulse=sin(time*0.1+this.pos.x)*2;
+    let c=color(this.dna.hue,80,100,80);
+
     push();
-    translate(this.pos.x, this.pos.y);
-    rotate(this.vel.heading() + PI/2);
-    fill(red(c), green(c), blue(c), alpha);
+    translate(this.pos.x,this.pos.y);
+    rotate(this.vel.heading()+PI/2);
     noStroke();
-    
-    // 有機的な形状
+    fill(c);
     beginShape();
-    vertex(0, -this.r*1.5);
-    bezierVertex(-this.r, 0, -this.r, this.r, 0, this.r);
-    bezierVertex(this.r, this.r, this.r, 0, 0, -this.r*1.5);
+    vertex(0,-this.dna.size*1.5-pulse);
+    bezierVertex(-this.dna.size,0,-this.dna.size,this.dna.size,0,this.dna.size);
+    bezierVertex(this.dna.size,this.dna.size,this.dna.size,0,0,-this.dna.size*1.5);
     endShape();
     pop();
-    
-    drawingContext.shadowBlur = 0;
+
+    colorMode(RGB,255);
   }
 }
-function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+
+/* =====================
+   補助
+===================== */
+function spawnFood(n){
+  for(let i=0;i<n;i++)
+    foods.push(createVector(random(width),random(height)));
+}
+function log(t){
+  let l=document.getElementById("log");
+  l.innerHTML=`${t}<br>`+l.innerHTML;
+}
+function windowResized(){
+  resizeCanvas(windowWidth,windowHeight);
+}
 </script>
 </body>
 </html>
+
 
