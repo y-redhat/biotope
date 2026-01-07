@@ -1,9 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions – Ideology Civilization Biotope (交尾・国家追加版)</title>
+<title>NovaNotions – Ideology Biotope (保護個体: 2分生存保証)</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
 body{margin:0;background:#000;font-family:monospace;overflow:hidden}
@@ -50,12 +49,21 @@ let nextNationId = 1;
 let startTime=0;
 const MIN_RUN_MS = 1000 * 60 * 5; // 5分
 
+/* 保護個体の生存保証（ms） */
+const PROTECTED_MS = 1000 * 60 * 2; // 約2分
+
 function setup(){
  createCanvas(windowWidth,windowHeight);
  spawnFood(200);
- runCommand("genesis");
 
  startTime = millis();
+ runCommand("genesis");
+
+ // もし存在すれば最初の個体を保護個体にする
+ if(organisms.length>0){
+  organisms[0].protectedUntil = millis() + PROTECTED_MS;
+  log("🔰 Protected individual set for ~2 minutes");
+ }
 
  cmd.addEventListener("keydown",e=>{
   if(e.key==="Enter"){runCommand(cmd.value);cmd.value="";}
@@ -108,9 +116,9 @@ function draw(){
   o.update();
   o.show();
   if(o.dead()){
+   // 保護個体は dead() が false を返す期間中はここを通らない
    if(random()<0.5) foods.push({pos:o.pos.copy(),type:"meat"});
-   // 国家から除名
-   if(o.nationId) {
+   if(o.nationId){
     let n = nations.find(x=>x.id===o.nationId);
     if(n) n.members = n.members.filter(m=>m!==o);
    }
@@ -153,6 +161,8 @@ function runCommand(cmd){
   for(let i=0;i<10;i++){
    organisms.push(new Organism(random(width),random(height)));
   }
+  // genesis 後に保護個体が未設定なら設定
+  if(!organisms[0].protectedUntil) organisms[0].protectedUntil = millis() + PROTECTED_MS;
   log("> genesis");
  }
  else if(cmd==="evolve"){
@@ -182,6 +192,7 @@ function runCommand(cmd){
 
 /* =====================
    生物
+   すべて red または blue のみ。思想の強さは彩度(サチュレーション)で表現。
 ===================== */
 class Organism{
  constructor(x,y,dna){
@@ -194,10 +205,10 @@ class Organism{
   if(this.ideology==="red") this.pos.x = random(width*0.05, width*0.45);
   else this.pos.x = random(width*0.55, width*0.95);
 
-  // 思想の強さ（0.2〜1.0） -> 色の濃さ(saturation)に反映
-  this.ideologyStrength = random(0.3,1.0);
+  // 思想の強さ（0.3〜1.0） -> 彩度に反映（濃淡）
+  this.ideologyStrength = random(0.35,1.0);
 
-  // Hue: red=0, blue=220
+  // Hue 固定: red=0, blue=220
   this.baseHue = (this.ideology==="red") ? 0 : 220;
 
   this.dna=dna||{
@@ -211,7 +222,7 @@ class Organism{
 
   this.health=1;
   this.age=0;
-  // 寿命を大幅延長
+  // 寿命を長めに（フレームベースではなく時間的に死なないよう保護個体を設定）
   this.maxAge=random(4000,8000);
 
   // 性別と繁殖関連
@@ -219,69 +230,60 @@ class Organism{
   this.matingCooldown = 0;
   this.pregnant = false;
   this.gestation = 0;
-  this.gestationPeriod = floor(random(600,1200)); // フレーム: 約10-20秒
+  this.gestationPeriod = floor(random(600,1200));
 
-  // 資本主義用stash
+  // stash / coop / infection
   this.stash = 0;
   this.coopCooldown = 0;
 
-  // 感染症（ウイルス）
   this.infected = false;
-  this.virusLoad = 0; // 0..1
-  this.immunity = random(0.0,0.6); // 回復力（高いほど死亡しにくい）
-  // 国籍
+  this.virusLoad = 0;
+  this.immunity = random(0.0,0.6);
+
   this.nationId = null;
+
+  // 保護終了時刻（ms）。未設定なら undefined
+  this.protectedUntil = this.protectedUntil || undefined;
  }
 
  update(){
   this.age++;
   if(this.health<=0||this.age>this.maxAge) this.health=0;
 
-  // 自然消耗を減らし長生きさせる調整
-  this.health -= 0.0006 * pow(this.dna.size,0.6);
+  // 自然消耗は控えめ
+  this.health -= 0.0005 * pow(this.dna.size,0.6);
 
-  // 感染症効果: virusLoad に応じてゆっくり体力減少
+  // 感染のゆっくりした影響（致死性抑制）
   if(this.infected){
-   // 病原性を低めにして死亡率を下げる（ご要望）
-   this.health -= this.virusLoad * 0.0009 * (1 - this.immunity*0.6);
-   // 回復判定（ゆっくり）
-   if(random() < 0.0008 + this.immunity*0.001){
-    // 徐々にウイルスが減る
-    this.virusLoad = max(0, this.virusLoad - 0.05);
+   this.health -= this.virusLoad * 0.0007 * (1 - this.immunity*0.6);
+   if(random() < 0.0009 + this.immunity*0.001) {
+    this.virusLoad = max(0, this.virusLoad - 0.045);
     if(this.virusLoad < 0.05){ this.infected=false; this.virusLoad=0; log("✚ recovered"); }
    }
   }
 
-  // 行動: 採餌・交尾など
+  // 妊娠・交尾・採餌
   if(this.pregnant){
    this.gestation++;
-   if(this.gestation >= this.gestationPeriod){
-    this.giveBirth();
-   }
+   if(this.gestation >= this.gestationPeriod) this.giveBirth();
   }else if(this.matingCooldown <= 0){
-   // 繁殖行動を起こすことがある（特に健康なら）
-   if(this.health > 0.9 && random() < 0.002){
-    // 受動的にパートナーを探す（特に雌は受け入れ）
+   if(this.health > 0.9 && random() < 0.002) {
     if(this.sex==="F") this.seekMate();
-    else this.wander();
+    else this.forage();
    }else this.forage();
-  }else{
-   this.forage();
-  }
+  }else this.forage();
 
-  // 方針差: blue は farm を狙いやすい
-  // 移動速度の制御
+  // 思想別挙動
   if(this.ideology==="blue") this.vel.limit(this.dna.speed * (war?1.35:1.1));
   else this.vel.limit(this.dna.speed * (war?1.2:1.0));
 
-  // 運動方程式
   this.vel.add(this.acc);
   this.pos.add(this.vel);
   this.acc.mult(0);
 
   this.edges();
 
-  // 戦争ダメージ
+  // 戦争ダメージ（blueはやや攻撃的）
   if(war){
    for(let o of organisms){
     if(o!==this && o.ideology!==this.ideology && dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y)<6){
@@ -295,27 +297,22 @@ class Organism{
   if(this.matingCooldown>0) this.matingCooldown--;
   if(this.coopCooldown>0) this.coopCooldown--;
 
-  // 資本家はstashがあると生存や繁殖に有利
-  if(this.stash > 0) this.stash = max(0, this.stash - 0.0004);
+  if(this.stash > 0) this.stash = max(0, this.stash - 0.00035);
 
-  // 国への貢献（税）
   if(this.nationId){
    let n = nations.find(x=>x.id===this.nationId);
    if(n && this.ideology==="blue"){
-    // blue は stash の一部を納める（税）
     let tax = this.stash * 0.0008;
     n.treasury += tax;
     this.stash -= tax;
    }else if(n && this.ideology==="red"){
-    // red は労働（小額）
     n.treasury += 0.0002;
    }
   }
 
-  // 接触による感染伝播（近接かつランダム）
+  // 接触感染（緩やか）
   for(let o of organisms){
    if(o!==this && dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y) < 8){
-    // 感染がある方からうつる
     if(this.infected && !o.infected && random()<0.0008*this.virusLoad){
      o.infect(this.virusLoad * 0.6);
     }
@@ -324,13 +321,20 @@ class Organism{
     }
    }
   }
+
+  // 保護期間中の強制維持: protectedUntil が現在より先なら死亡を妨げるため最低健康値を維持
+  if(this.protectedUntil && millis() < this.protectedUntil){
+   // 最低健康を確保するこ���で死亡を防ぐ
+   this.health = max(this.health, 0.15);
+   // ウイルスで死なないようにウイルス負荷を緩やかに抑える
+   if(this.infected) this.virusLoad = max(0, this.virusLoad - 0.02);
+  }
  }
 
- // 感染させる（緩やかな増加）
+ // 感染
  infect(load){
   this.infected = true;
   this.virusLoad = constrain(this.virusLoad + load * random(0.6,1.0), 0, 1);
-  // 感染は致死的でないように調整（復帰可能）
  }
 
  forage(){
@@ -363,7 +367,6 @@ class Organism{
       this.memory.good++;
      }
 
-     // 小さな感染リスク（生食や接触で）
      if(random() < 0.0008) this.infect(0.12);
 
      foods.splice(i,1);
@@ -374,7 +377,6 @@ class Organism{
   else this.wander();
  }
 
- // 近くの同陣営に少量分配
  shareToAllies(amount){
   let given = 0;
   for(let o of organisms){
@@ -404,7 +406,6 @@ class Organism{
   }
  }
 
- // 交尾行動: 雌が発信して雄が近づく簡略モデル
  seekMate(){
   let nearestMale=null, dmin=this.dna.sense;
   for(let o of organisms){
@@ -418,10 +419,9 @@ class Organism{
   if(nearestMale){
    this.applyForce(this.seek(nearestMale.pos));
    if(dmin < this.dna.size*1.5){
-    // ペア成立: メスが妊娠、オスはクールダウン
     if(!this.pregnant && this.health>0.9 && nearestMale.health>0.8){
      this.becomePregnantBy(nearestMale);
-     nearestMale.matingCooldown = 600; // オスクールダウン
+     nearestMale.matingCooldown = 600;
      this.matingCooldown = 600;
     }
    }
@@ -430,7 +430,6 @@ class Organism{
 
  becomePregnantBy(male){
   if(this.sex!=="F" || this.pregnant) return;
-  // 妊娠確率や影響は状態による
   let success = random() < 0.9 * constrain((this.health + male.health)/2, 0.6, 1.2);
   if(success){
    this.pregnant = true;
@@ -445,9 +444,7 @@ class Organism{
  giveBirth(){
   this.pregnant = false;
   this.gestation = 0;
-  // 子のDNAは親の平均（軽い突然変異）
   let father = null;
-  // 父は近くの男性（簡易）
   for(let o of organisms){
    if(o!==this && o.ideology===this.ideology && o.sex==="M"){
     if(dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y) < 80){ father = o; break; }
@@ -464,17 +461,20 @@ class Organism{
    childDNA.sense = (childDNA.sense + father.dna.sense)/2 + random(-6,6);
   }
   let child = new Organism(this.pos.x + random(-8,8), this.pos.y + random(-8,8), childDNA);
-  // 子の思想強さは親の平均
   if(father) child.ideologyStrength = (this.ideologyStrength + father.ideologyStrength)/2 + random(-0.05,0.06);
   else child.ideologyStrength = this.ideologyStrength;
   child.ideology = this.ideology;
-  // 国籍継承
+  child.baseHue = (child.ideology==="red") ? 0 : 220;
   child.nationId = this.nationId;
   organisms.push(child);
   log("✳ Birth: new individual ("+this.ideology+")");
  }
 
- dead(){return this.health<=0;}
+ // dead(): 保護個体期間は死亡扱いにしない
+ dead(){
+  if(this.protectedUntil && millis() < this.protectedUntil) return false;
+  return this.health<=0;
+ }
 
  seek(t){
   let d=p5.Vector.sub(t,this.pos);
@@ -484,20 +484,18 @@ class Organism{
 
  applyForce(f){this.acc.add(f);}
  edges(){
-  // 領域拘束: 各思想は画面半分に偏在させやすい
   if(this.ideology==="red") this.pos.x=constrain(this.pos.x,0,width*0.55);
   else this.pos.x=constrain(this.pos.x,width*0.45,width);
   this.pos.y=constrain(this.pos.y,0,height);
  }
  show(){
-  // 色は思想ごとに固定hue、強さを彩度に反映
+  // 色は思想ごとに固定hue、強さを彩度に反映（濃淡）
   colorMode(HSB,360,100,100,100);
   let sat = constrain(this.ideologyStrength * 100, 30, 100);
   fill(this.baseHue, sat, 90, 95);
   noStroke();
   ellipse(this.pos.x,this.pos.y,this.dna.size*0.8);
 
-  // 妊娠中の表示
   if(this.pregnant){
    stroke(255,200,120);
    noFill();
@@ -505,13 +503,11 @@ class Organism{
    noStroke();
   }
 
-  // stash 表示（blue）
   if(this.ideology==="blue" && this.stash>0.02){
    fill(200,80,90,80);
    circle(this.pos.x,this.pos.y - this.dna.size - 6, map(this.stash,0,2,2,8));
   }
 
-  // 感染表示（小さい赤点）
   if(this.infected){
    fill(0,255,80,200);
    circle(this.pos.x + this.dna.size*0.45, this.pos.y - this.dna.size*0.45, 3);
@@ -525,7 +521,6 @@ class Organism{
    国家（簡易）
 ===================== */
 function formNations(){
- // シンプルなクラスタ検出: 未所属の個体から近接でグルーピング
  let unassigned = organisms.slice();
  let clusters = [];
 
@@ -550,13 +545,10 @@ function formNations(){
   clusters.push(cluster);
  }
 
- // しきい値以上のクラスタに国家を作る（未所属のもの中心）
  clusters.forEach(cluster=>{
   if(cluster.length >= 22){
-   // 既にほぼ同じメンバーで国家があるか確認
    let anyMember = cluster[0];
-   if(anyMember.nationId) return; // 代表が既に国家所属ならスキップ
-   // 新国家を作る
+   if(anyMember.nationId) return;
    let n = {
     id: nextNationId++,
     ideology: anyMember.ideology,
@@ -573,11 +565,7 @@ function formNations(){
 }
 
 function nTick(n){
- // 国家は農場を作ったり、政策で資源を配る
- // 赤い国家: 分配を優先してメンバーに小回復
- // 青い国家: 農場を生み出し、stashから税をもらう
  if(n.ideology==="red"){
-  // 分配: treasury を使って弱いメンバーを回復
   n.members.forEach(m=>{
    if(m && m.health < 0.95 && n.treasury > 0.01){
     m.health = min(1.4, m.health + 0.08);
@@ -585,7 +573,6 @@ function nTick(n){
    }
   });
  }else{
-  // 青は農場をランダムに設置して生産性向上（farm アイテム）
   if(random() < 0.25){
    let cx = n.center.x + random(-80,80);
    let cy = n.center.y + random(-80,80);
@@ -594,12 +581,9 @@ function nTick(n){
    log("🏦 Nation "+n.id+" built a farm");
   }
  }
- // 国家に空気的に小さな税収も入る（領域経済）
  n.treasury += n.members.length * 0.0002;
- // クリーンアップ: メンバーが死んだら除外
  n.members = n.members.filter(m=>organisms.includes(m));
  if(n.members.length < 6){
-  // 小規模国家は解体
   log("✖ Nation "+n.id+" dissolved");
   n.members.forEach(m=>{ if(m) m.nationId = null; });
   nations = nations.filter(x=>x.id!==n.id);
@@ -635,7 +619,6 @@ function log(t){
 }
 function windowResized(){resizeCanvas(windowWidth,windowHeight);}
 
-// 最低人口を保つ（初期5分間の保護）
 function ensureMinPopulation(minCount){
  if(organisms.length >= minCount) return;
  let need = minCount - organisms.length;
