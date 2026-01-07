@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions – Ideology Biotope Stable</title>
+<title>NovaNotions – Ideology Biotope</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
 body{margin:0;background:#000;font-family:monospace;overflow:hidden}
@@ -21,7 +21,6 @@ background:rgba(0,0,0,.6);border:1px solid #033;padding:5px}
 <div id="log"></div>
 <div id="ui">
 <div id="stats">
-TIME:<span id="timer">00:00</span> |
 YEAR:<span id="year">0</span> |
 POP:<span id="pop">0</span> |
 CIV:<span id="civ">Hunter-Gatherer</span> |
@@ -36,11 +35,9 @@ WAR:<span id="warstat">NO</span>
 ===================== */
 let organisms=[],foods=[];
 let time=0,epoch=0,war=false,civilization=0;
-let startTime=0;
 const CIV_NAMES=["Hunter-Gatherer","Agriculture","Nation"];
 let cmd,logDiv,logBuffer=[];
-
-const BORDER_RATIO=0.5; // 国境位置
+let border=0.5; // 国境比率（勝者で変動）
 
 /* =====================
    初期化
@@ -50,7 +47,6 @@ function setup(){
  cmd=document.getElementById("cmd");
  logDiv=document.getElementById("log");
  spawnFood(200);
- startTime=millis();
  runCommand("genesis");
 
  cmd.addEventListener("keydown",e=>{
@@ -66,74 +62,46 @@ function setup(){
 ===================== */
 function draw(){
  background(0);
-
- drawNations();   // ← 国家境界描画
-
  time++; if(time%60===0) epoch++;
+
  if(organisms.length>40&&civilization===0) civilization=1;
  if(organisms.length>120&&civilization===1) civilization=2;
 
+ drawNations();
  updateUI();
-
  drawFood();
  updateOrganisms();
 
- if(!war&&civilization===2&&organisms.length>100) startWar();
+ if(war) checkSurrender();
+
  if(frameCount%20===0)
   logDiv.innerHTML=logBuffer.slice().reverse().join("<br>");
 }
 
 /* =====================
-   国家境界 可視化
+   国家境界
 ===================== */
 function drawNations(){
- noStroke();
-
- // 左：共産主義
- fill(120,0,0,40);
- rect(0,0,width*BORDER_RATIO,height);
-
- // 右：資本主義
- fill(0,0,120,40);
- rect(width*BORDER_RATIO,0,width,height);
-
- // 国境線
- stroke(200);
- strokeWeight(civilization===2?3:1);
- line(width*BORDER_RATIO,0,width*BORDER_RATIO,height);
-
- // ラベル
- noStroke();
- textAlign(CENTER);
- textSize(14);
- fill(255,120,120);
- text("COMMUNISM",width*0.25,30);
- fill(120,120,255);
- text("CAPITALISM",width*0.75,30);
+ if(!war){
+  noStroke();
+  fill(120,0,0,40);
+  rect(0,0,width*border,height);
+  fill(0,0,120,40);
+  rect(width*border,0,width,height);
+  stroke(200);
+  strokeWeight(civilization===2?3:1);
+  line(width*border,0,width*border,height);
+ }
 }
 
 /* =====================
    UI
 ===================== */
 function updateUI(){
- let elapsed=millis()-startTime;
- timer.innerText=
-  nf(floor(elapsed/60000),2)+":"+nf(floor(elapsed/1000)%60,2);
  year.innerText=epoch;
  pop.innerText=organisms.length;
  civ.innerText=CIV_NAMES[civilization];
  warstat.innerText=war?"YES":"NO";
-}
-
-/* =====================
-   食料
-===================== */
-function drawFood(){
- noStroke();
- fill(100,255,100,150);
- for(let f of foods){
-  circle(f.pos.x,f.pos.y,4);
- }
 }
 
 /* =====================
@@ -144,51 +112,51 @@ class Organism{
   this.ideology=random()<0.5?"red":"blue";
   this.pos=createVector(
    this.ideology==="red"
-    ?random(width*0.05,width*0.45)
-    :random(width*0.55,width*0.95),
+    ?random(width*0.05,width*border-10)
+    :random(width*border+10,width*0.95),
    random(height)
   );
   this.vel=p5.Vector.random2D().mult(0.6);
   this.size=random(8,14);
   this.health=1;
-  this.age=0;
-  this.maxAge=random(4000,8000);
-  this.baseHue=this.ideology==="red"?0:220;
  }
 
  update(){
-  this.age++;
   this.health-=0.0004;
-  this.forage();
-  if(war) this.vel.add(p5.Vector.random2D().mult(0.05));
   this.pos.add(this.vel);
+  if(random()<0.02)
+   this.vel=p5.Vector.random2D().mult(0.6);
+
+  // 国境侵犯チェック
+  if(!war){
+   if(this.ideology==="red"&&this.pos.x>width*border){
+    startWar("border violation");
+   }
+   if(this.ideology==="blue"&&this.pos.x<width*border){
+    startWar("border violation");
+   }
+  }
+
   this.edges();
  }
 
- forage(){
-  for(let i=foods.length-1;i>=0;i--){
-   if(dist(this.pos.x,this.pos.y,
-           foods[i].pos.x,foods[i].pos.y)<this.size){
-    this.health+=0.3;
-    foods.splice(i,1);
-    break;
-   }
-  }
- }
-
  edges(){
-  if(this.ideology==="red")
-   this.pos.x=constrain(this.pos.x,0,width*BORDER_RATIO-2);
-  else
-   this.pos.x=constrain(this.pos.x,width*BORDER_RATIO+2,width);
+  if(!war){
+   if(this.ideology==="red")
+    this.pos.x=constrain(this.pos.x,0,width*border-2);
+   else
+    this.pos.x=constrain(this.pos.x,width*border+2,width);
+  }else{
+   this.pos.x=constrain(this.pos.x,0,width);
+  }
   this.pos.y=constrain(this.pos.y,0,height);
  }
 
- dead(){return this.health<=0||this.age>this.maxAge}
+ dead(){return this.health<=0}
 
  show(){
   colorMode(HSB,360,100,100);
-  fill(this.baseHue,90,90);
+  fill(this.ideology==="red"?0:220,90,90);
   ellipse(this.pos.x,this.pos.y,this.size);
   colorMode(RGB,255);
  }
@@ -198,22 +166,43 @@ class Organism{
    生物更新
 ===================== */
 function updateOrganisms(){
+ let r=0,b=0;
  for(let i=organisms.length-1;i>=0;i--){
   let o=organisms[i];
   o.update();
   o.show();
-  if(o.dead()){
-   organisms.splice(i,1);
-  }
+  o.ideology==="red"?r++:b++;
+  if(o.dead()) organisms.splice(i,1);
  }
 }
 
 /* =====================
-   国家・戦争
+   戦争
 ===================== */
-function startWar(){
+function startWar(reason){
+ if(war||civilization<2) return;
  war=true;
- log("⚔ WAR STARTED");
+ log("⚔ WAR STARTED ("+reason+")");
+}
+
+function checkSurrender(){
+ let r=organisms.filter(o=>o.ideology==="red").length;
+ let b=organisms.filter(o=>o.ideology==="blue").length;
+ if(r<5||b<5){
+  let winner=r>b?"red":"blue";
+  endWar(winner);
+ }
+}
+
+function endWar(winner){
+ war=false;
+ let gain=0.08;
+ if(winner==="red"){
+  border=min(0.8,border+gain);
+ }else{
+  border=max(0.2,border-gain);
+ }
+ log("🏳 "+winner+" wins – territory expanded");
 }
 
 /* =====================
@@ -227,10 +216,10 @@ function runCommand(c){
    log("🌱 genesis");
   }
  }
- if(c==="war") startWar();
+ if(c==="war") startWar("command");
  if(c==="reset"){
   organisms=[];foods=[];
-  civilization=0;war=false;
+  border=0.5;war=false;civilization=0;
   spawnFood(200);
   runCommand("genesis");
   log("↺ reset");
@@ -244,14 +233,17 @@ function spawnFood(n){
  for(let i=0;i<n;i++)
   foods.push({pos:createVector(random(width),random(height))});
 }
+function drawFood(){
+ fill(100,255,100,150);noStroke();
+ for(let f of foods) circle(f.pos.x,f.pos.y,4);
+}
 function log(t){
  logBuffer.push(t);
  if(logBuffer.length>40) logBuffer.shift();
 }
-function windowResized(){
- resizeCanvas(windowWidth,windowHeight);
-}
+function windowResized(){resizeCanvas(windowWidth,windowHeight);}
 </script>
 </body>
 </html>
+
 
