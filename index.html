@@ -34,18 +34,13 @@ WAR:<span id="warstat">NO</span>
 /* =====================
    グローバル
 ===================== */
-let organisms=[],foods=[],nations=[];
+let organisms=[],foods=[];
 let time=0,epoch=0,war=false,civilization=0;
-let fertility=1,startTime=0;
+let startTime=0;
 const CIV_NAMES=["Hunter-Gatherer","Agriculture","Nation"];
 let cmd,logDiv,logBuffer=[];
 
-/* 食料 */
-const FOOD_TYPES={
- plant:{color:[100,255,100],energy:0.25},
- meat:{color:[255,80,80],energy:0.6},
- farm:{color:[180,255,120],energy:0.4}
-};
+const BORDER_RATIO=0.5; // 国境位置
 
 /* =====================
    初期化
@@ -70,12 +65,57 @@ function setup(){
    メインループ
 ===================== */
 function draw(){
- background(0,30,10);
- time++; if(time%60===0) epoch++;
+ background(0);
 
+ drawNations();   // ← 国家境界描画
+
+ time++; if(time%60===0) epoch++;
  if(organisms.length>40&&civilization===0) civilization=1;
  if(organisms.length>120&&civilization===1) civilization=2;
 
+ updateUI();
+
+ drawFood();
+ updateOrganisms();
+
+ if(!war&&civilization===2&&organisms.length>100) startWar();
+ if(frameCount%20===0)
+  logDiv.innerHTML=logBuffer.slice().reverse().join("<br>");
+}
+
+/* =====================
+   国家境界 可視化
+===================== */
+function drawNations(){
+ noStroke();
+
+ // 左：共産主義
+ fill(120,0,0,40);
+ rect(0,0,width*BORDER_RATIO,height);
+
+ // 右：資本主義
+ fill(0,0,120,40);
+ rect(width*BORDER_RATIO,0,width,height);
+
+ // 国境線
+ stroke(200);
+ strokeWeight(civilization===2?3:1);
+ line(width*BORDER_RATIO,0,width*BORDER_RATIO,height);
+
+ // ラベル
+ noStroke();
+ textAlign(CENTER);
+ textSize(14);
+ fill(255,120,120);
+ text("COMMUNISM",width*0.25,30);
+ fill(120,120,255);
+ text("CAPITALISM",width*0.75,30);
+}
+
+/* =====================
+   UI
+===================== */
+function updateUI(){
  let elapsed=millis()-startTime;
  timer.innerText=
   nf(floor(elapsed/60000),2)+":"+nf(floor(elapsed/1000)%60,2);
@@ -83,98 +123,68 @@ function draw(){
  pop.innerText=organisms.length;
  civ.innerText=CIV_NAMES[civilization];
  warstat.innerText=war?"YES":"NO";
+}
 
- if(random()<0.12*fertility){
-  let t="plant";
-  if(civilization>=1&&random()<0.3) t="farm";
-  foods.push({pos:createVector(random(width),random(height)),type:t});
- }
-
+/* =====================
+   食料
+===================== */
+function drawFood(){
  noStroke();
+ fill(100,255,100,150);
  for(let f of foods){
-  let c=FOOD_TYPES[f.type].color;
-  fill(c[0],c[1],c[2],140);
   circle(f.pos.x,f.pos.y,4);
  }
-
- let red=0,blue=0;
- for(let i=organisms.length-1;i>=0;i--){
-  let o=organisms[i];
-  o.update();
-  o.show();
-  if(o.dead()){
-   if(random()<0.5)
-    foods.push({pos:o.pos.copy(),type:"meat"});
-   organisms.splice(i,1);
-  }else{
-   o.ideology==="red"?red++:blue++;
-  }
- }
-
- if(!war&&organisms.length>100) startWar();
- if(war){
-  if(red<10||blue<10) endWar();
- }
-
- if(frameCount%20===0)
-  logDiv.innerHTML=logBuffer.slice().reverse().join("<br>");
 }
 
 /* =====================
    生物
 ===================== */
 class Organism{
- constructor(x,y){
-  this.pos=createVector(x,y);
-  this.vel=p5.Vector.random2D().mult(0.6);
-  this.acc=createVector();
+ constructor(){
   this.ideology=random()<0.5?"red":"blue";
-  this.baseHue=this.ideology==="red"?0:220;
+  this.pos=createVector(
+   this.ideology==="red"
+    ?random(width*0.05,width*0.45)
+    :random(width*0.55,width*0.95),
+   random(height)
+  );
+  this.vel=p5.Vector.random2D().mult(0.6);
   this.size=random(8,14);
   this.health=1;
   this.age=0;
   this.maxAge=random(4000,8000);
+  this.baseHue=this.ideology==="red"?0:220;
  }
 
  update(){
   this.age++;
   this.health-=0.0004;
-
   this.forage();
-  if(war) this.acc.add(p5.Vector.random2D().mult(0.05));
-
-  this.vel.add(this.acc).limit(1);
+  if(war) this.vel.add(p5.Vector.random2D().mult(0.05));
   this.pos.add(this.vel);
-  this.acc.mult(0);
   this.edges();
  }
 
  forage(){
-  let nearest=null,dmin=80;
   for(let i=foods.length-1;i>=0;i--){
-   let d=p5.Vector.dist(this.pos,foods[i].pos);
-   if(d<dmin){
-    dmin=d;nearest=foods[i];
-    if(d<this.size){
-     this.health+=FOOD_TYPES[foods[i].type].energy;
-     foods.splice(i,1);
-    }
+   if(dist(this.pos.x,this.pos.y,
+           foods[i].pos.x,foods[i].pos.y)<this.size){
+    this.health+=0.3;
+    foods.splice(i,1);
+    break;
    }
   }
-  if(nearest)
-   this.acc.add(p5.Vector.sub(nearest.pos,this.pos)
-    .setMag(0.05));
  }
-
- dead(){return this.health<=0||this.age>this.maxAge}
 
  edges(){
   if(this.ideology==="red")
-   this.pos.x=constrain(this.pos.x,0,width*0.55);
+   this.pos.x=constrain(this.pos.x,0,width*BORDER_RATIO-2);
   else
-   this.pos.x=constrain(this.pos.x,width*0.45,width);
+   this.pos.x=constrain(this.pos.x,width*BORDER_RATIO+2,width);
   this.pos.y=constrain(this.pos.y,0,height);
  }
+
+ dead(){return this.health<=0||this.age>this.maxAge}
 
  show(){
   colorMode(HSB,360,100,100);
@@ -185,16 +195,25 @@ class Organism{
 }
 
 /* =====================
+   生物更新
+===================== */
+function updateOrganisms(){
+ for(let i=organisms.length-1;i>=0;i--){
+  let o=organisms[i];
+  o.update();
+  o.show();
+  if(o.dead()){
+   organisms.splice(i,1);
+  }
+ }
+}
+
+/* =====================
    国家・戦争
 ===================== */
 function startWar(){
- if(civilization<2) return;
  war=true;
  log("⚔ WAR STARTED");
-}
-function endWar(){
- war=false;
- log("🏳 WAR ENDED");
 }
 
 /* =====================
@@ -204,14 +223,13 @@ function runCommand(c){
  c=c.trim();
  if(c==="genesis"){
   if(organisms.length===0){
-   for(let i=0;i<16;i++)
-    organisms.push(new Organism(random(width),random(height)));
+   for(let i=0;i<20;i++) organisms.push(new Organism());
    log("🌱 genesis");
   }
  }
  if(c==="war") startWar();
  if(c==="reset"){
-  organisms=[];foods=[];nations=[];
+  organisms=[];foods=[];
   civilization=0;war=false;
   spawnFood(200);
   runCommand("genesis");
@@ -224,8 +242,7 @@ function runCommand(c){
 ===================== */
 function spawnFood(n){
  for(let i=0;i<n;i++)
-  foods.push({pos:createVector(random(width),random(height)),
-              type:"plant"});
+  foods.push({pos:createVector(random(width),random(height))});
 }
 function log(t){
  logBuffer.push(t);
