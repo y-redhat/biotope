@@ -2,190 +2,185 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>Ideology Territory War</title>
+<title>Ideology Biotope</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
 <style>
-body{margin:0;background:#000;overflow:hidden;font-family:monospace}
-#ui{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:#0f0}
-#cmd{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);width:240px}
+body{margin:0;background:#000;font-family:monospace;overflow:hidden}
+#ui{
+ position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+ width:80%;text-align:center;z-index:10
+}
+input{
+ width:60%;padding:10px;background:#000;color:#0f0;
+ border:1px solid #0f0;font-size:14px
+}
+#stats{color:#aaa;font-size:12px;margin-bottom:4px}
 </style>
 </head>
+
 <body>
 <div id="ui">
-YEAR:<span id="year">0</span> |
-RED:<span id="red">0</span> |
-BLUE:<span id="blue">0</span> |
-WAR:<span id="war">OFF</span>
+<div id="stats"></div>
+<input id="cmd" placeholder="> war / reset">
 </div>
-<input id="cmd" placeholder="> war / peace" />
 
 <script>
-/* ========= 世界 ========= */
-let people=[];
-let year=0, t=0;
-let war=false;
+/* ================================
+   基本設定
+================================ */
+const GRID = 30;
+const COLS = 30;
+const ROWS = 18;
+let territory = [];
+let people = [];
+let war = false;
 
-/* ========= 領土 ========= */
-const GRID=40;
-let cols, rows;
-let territory=[]; // red / blue
-
-/* ========= 思想 ========= */
-const IDEOLOGY={
- red:{color:[255,80,80],bg:[255,150,150],birth:0.01,move:0.7},
- blue:{color:[80,120,255],bg:[150,180,255],birth:0.015,move:1.0}
+/* 思想パラメータ（公平） */
+const IDEOLOGY = {
+ red:{color:[255,80,80], birth:0.008, move:0.6},
+ blue:{color:[80,150,255], birth:0.008, move:0.6}
 };
 
-/* ========= 個体 ========= */
-class Person{
- constructor(x,y,side){
-  this.pos=createVector(x,y);
-  this.vel=p5.Vector.random2D();
-  this.side=side;
-  this.health=random(0.7,1);
-  this.size=6;
- }
- update(){
-  this.health-=0.00008;
-
-  // 移動（戦争で侵攻）
-  if(war){
-   let target=this.findEnemyTerritory();
-   if(target) this.vel.add(p5.Vector.sub(target,this.pos).setMag(0.05));
-  }else{
-   this.vel.add(p5.Vector.random2D().mult(0.03));
-  }
-
-  this.vel.limit(IDEOLOGY[this.side].move);
-  this.pos.add(this.vel);
-  this.edges();
-
-  // 繁殖（自領土が多いほど有利）
-  let land=this.controlledLand();
-  if(random()<IDEOLOGY[this.side].birth*(0.5+land) && this.health>0.6){
-   people.push(new Person(
-    this.pos.x+random(-8,8),
-    this.pos.y+random(-8,8),
-    this.side
-   ));
-   this.health-=0.08;
-  }
-
-  // 戦闘 & 占領
-  if(war) this.fightAndClaim();
- }
- controlledLand(){
-  let c=0;
-  for(let t of territory) if(t===this.side) c++;
-  return c/(cols*rows);
- }
- fightAndClaim(){
-  let cx=floor(this.pos.x/GRID);
-  let cy=floor(this.pos.y/GRID);
-  let idx=cx+cy*cols;
-  if(territory[idx]!==this.side){
-   if(random()<0.02){
-    territory[idx]=this.side;
-   }
-  }
- }
- findEnemyTerritory(){
-  for(let i=0;i<territory.length;i++){
-   if(territory[i]!==this.side){
-    let x=(i%cols)*GRID+GRID/2;
-    let y=floor(i/cols)*GRID+GRID/2;
-    return createVector(x,y);
-   }
-  }
-  return null;
- }
- edges(){
-  if(this.pos.x<0)this.pos.x=width;
-  if(this.pos.x>width)this.pos.x=0;
-  if(this.pos.y<0)this.pos.y=height;
-  if(this.pos.y>height)this.pos.y=0;
- }
- show(){
-  let c=IDEOLOGY[this.side].color;
-  fill(c[0],c[1],c[2],200);
-  noStroke();
-  circle(this.pos.x,this.pos.y,this.size);
- }
- dead(){return this.health<=0}
-}
-
-/* ========= 初期化 ========= */
+/* ================================
+   初期化
+================================ */
 function setup(){
- createCanvas(windowWidth,windowHeight);
- cols=floor(width/GRID);
- rows=floor(height/GRID);
- territory=new Array(cols*rows);
-
- for(let y=0;y<rows;y++){
-  for(let x=0;x<cols;x++){
-   territory[x+y*cols]=(x<cols/2)?"red":"blue";
-  }
+ createCanvas(COLS*GRID,ROWS*GRID);
+ for(let i=0;i<COLS*ROWS;i++){
+  territory[i]=random()<0.5?"red":"blue";
  }
-
- for(let i=0;i<30;i++){
-  people.push(new Person(random(width/2),random(height),"red"));
-  people.push(new Person(random(width/2,width),random(height),"blue"));
- }
-
- document.getElementById("cmd").addEventListener("keydown",e=>{
-  if(e.key==="Enter"){
-   if(e.target.value==="war") war=true;
-   if(e.target.value==="peace") endWar();
-   e.target.value="";
-  }
- });
+ for(let i=0;i<40;i++) spawn();
 }
 
-/* ========= 戦争終了処理 ========= */
-function endWar(){
- war=false;
- let r=territory.filter(t=>t==="red").length;
- let b=territory.filter(t=>t==="blue").length;
- let winner=r>b?"red":"blue";
- IDEOLOGY[winner].birth*=1.1;
- IDEOLOGY[winner].move*=1.05;
-}
-
-/* ========= 描画 ========= */
+/* ================================
+   メインループ
+================================ */
 function draw(){
- t++; if(t%60===0) year++;
  background(0);
+ drawTerritory();
 
- // 領土描画
- for(let y=0;y<rows;y++){
-  for(let x=0;x<cols;x++){
-   let t=territory[x+y*cols];
-   let c=IDEOLOGY[t].bg;
-   fill(c[0],c[1],c[2],60);
-   noStroke();
+ let r=0,b=0;
+
+ for(let i=people.length-1;i>=0;i--){
+  let p=people[i];
+  p.update();
+  p.draw();
+  if(p.dead) people.splice(i,1);
+  else p.side==="red"?r++:b++;
+ }
+
+ /* 自動戦争 */
+ if(!war && people.length>100) war=true;
+
+ /* 降伏判定 */
+ if(war){
+  if(r<=10 && b>10) surrender("red");
+  if(b<=10 && r>10) surrender("blue");
+ }
+
+ /* 繁殖（控えめ） */
+ if(people.length<120){
+  people.forEach(p=>{
+   if(random()<IDEOLOGY[p.side].birth) spawn(p.side,p.x,p.y);
+  });
+ }
+
+ document.getElementById("stats").innerText =
+  `POP:${people.length} RED:${r} BLUE:${b} WAR:${war}`;
+}
+
+/* ================================
+   領土描画
+================================ */
+function drawTerritory(){
+ stroke(40);
+ for(let y=0;y<ROWS;y++){
+  for(let x=0;x<COLS;x++){
+   let id=territory[y*COLS+x];
+   fill(id==="red"?255:80, id==="red"?120:180, id==="red"?120:255,80);
    rect(x*GRID,y*GRID,GRID,GRID);
   }
  }
-
- let r=0,b=0;
- for(let i=people.length-1;i>=0;i--){
-  let p=people[i];
-  p.update(); p.show();
-  if(p.side==="red") r++; else b++;
-  if(p.dead()) people.splice(i,1);
- }
-
- // 自然戦争
- if(!war && r+b>200 && random()<0.002) war=true;
-
- document.getElementById("year").innerText=year;
- document.getElementById("red").innerText=r;
- document.getElementById("blue").innerText=b;
- document.getElementById("war").innerText=war?"ON":"OFF";
 }
 
-function windowResized(){resizeCanvas(windowWidth,windowHeight)}
+/* ================================
+   個体
+================================ */
+class Person{
+ constructor(x,y,side){
+  this.x=x;this.y=y;
+  this.vx=random(-1,1);this.vy=random(-1,1);
+  this.side=side;
+  this.life=1000;
+  this.dead=false;
+ }
+ update(){
+  this.life--;
+  if(this.life<0) this.dead=true;
+
+  let m=IDEOLOGY[this.side].move*(war?1.8:1);
+  this.x+=this.vx*m;
+  this.y+=this.vy*m;
+
+  this.vx+=random(-0.3,0.3);
+  this.vy+=random(-0.3,0.3);
+
+  this.x=constrain(this.x,0,width);
+  this.y=constrain(this.y,0,height);
+
+  /* 戦争ダメージ */
+  if(war){
+   people.forEach(o=>{
+    if(o.side!==this.side && dist(this.x,this.y,o.x,o.y)<6){
+     if(random()<0.02) this.dead=true;
+    }
+   });
+  }
+ }
+ draw(){
+  noStroke();
+  let c=IDEOLOGY[this.side].color;
+  fill(c[0],c[1],c[2]);
+  ellipse(this.x,this.y,5,5);
+ }
+}
+
+/* ================================
+   生成
+================================ */
+function spawn(side,x,y){
+ let s=side||random()<0.5?"red":"blue";
+ let px=x||random(width);
+ let py=y||random(height);
+ people.push(new Person(px,py,s));
+}
+
+/* ================================
+   戦争終了（降伏）
+================================ */
+function surrender(loser){
+ war=false;
+ let win=loser==="red"?"blue":"red";
+
+ IDEOLOGY[win].birth*=1.1;
+ IDEOLOGY[win].move*=1.05;
+
+ for(let i=0;i<territory.length;i++){
+  if(territory[i]===loser && random()<0.6)
+   territory[i]=win;
+ }
+}
+
+/* ================================
+   コマンド
+================================ */
+document.getElementById("cmd").addEventListener("keydown",e=>{
+ if(e.key==="Enter"){
+  if(e.target.value==="war") war=true;
+  if(e.target.value==="reset") location.reload();
+  e.target.value="";
+ }
+});
 </script>
 </body>
 </html>
-
