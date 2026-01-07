@@ -2,49 +2,30 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>NovaNotions Biotope – Civilization Edition</title>
+<title>NovaNotions Biotope – Life & Civilization</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-
 <style>
-body {
-  margin:0;
-  background:#000;
-  overflow:hidden;
-  font-family: monospace;
-}
+body { margin:0; background:#000; overflow:hidden; font-family:monospace; }
 #ui {
-  position:absolute;
-  bottom:10px;
-  left:50%;
+  position:absolute; bottom:10px; left:50%;
   transform:translateX(-50%);
-  width:90%;
-  text-align:center;
-  z-index:10;
+  width:90%; text-align:center;
 }
 input {
-  width:60%;
-  padding:10px;
+  width:60%; padding:8px;
   background:rgba(0,0,0,.8);
-  border:1px solid #0f0;
-  color:#0f0;
+  border:1px solid #0f0; color:#0f0;
 }
 #stats {
-  color:#aaa;
-  font-size:12px;
-  margin-bottom:4px;
+  color:#aaa; font-size:12px; margin-bottom:4px;
 }
 #log {
-  position:absolute;
-  top:10px;
-  left:10px;
-  width:300px;
-  height:200px;
-  overflow:auto;
-  font-size:11px;
-  color:#0f0;
+  position:absolute; top:10px; left:10px;
+  width:340px; height:220px;
+  overflow:auto; font-size:11px;
   background:rgba(0,0,0,.6);
-  border:1px solid #033;
-  padding:5px;
+  border:1px solid #033; padding:5px;
+  color:#0f0;
 }
 </style>
 </head>
@@ -56,26 +37,50 @@ input {
   <div id="stats">
     YEAR:<span id="year">0</span> |
     POP:<span id="pop">0</span> |
-    CIV:<span id="civ">Hunter-Gatherer</span>
+    HOUSES:<span id="houseCount">0</span> |
+    CIV:<span id="civ">Nomad</span>
   </div>
-  <input id="cmd" placeholder="> genesis / evolve / war / religion / meteor / reset">
+  <input id="cmd" placeholder="> genesis / reset / meteor">
 </div>
 
 <script>
-/* =====================
-   グローバル状態
-===================== */
-let organisms = [];
-let foods = [];
-let time = 0;
-let epoch = 0;
+/* ===============================
+   グローバル
+=============================== */
+let organisms=[], foods=[], houses=[];
+let time=0, year=0;
+let fertility=1;
+let civilization=0; // 0遊牧 1村 2都市 3国家
 
-let fertility = 1;
-let civilization = 0; 
-// 0:採集 1:農耕 2:国家
+const CIV_NAMES=["Nomad","Village","City","Nation"];
 
-const CIV_NAMES = ["Hunter-Gatherer","Agriculture","Nation"];
+/* ===============================
+   ウイルス定義（自然界モデル）
+=============================== */
+const VIRUS_POOL = [
+  { name:"Mild",   infect:0.25, severity:0.1,  death:0.001 },
+  { name:"Flu",    infect:0.18, severity:0.3,  death:0.005 },
+  { name:"Severe", infect:0.07, severity:0.6,  death:0.02  }
+];
 
+class Virus {
+  constructor(template){
+    this.name = template.name;
+    this.infect = template.infect;
+    this.severity = template.severity;
+    this.death = template.death;
+  }
+  mutate(){
+    // 自然変異（弱毒化しやすい）
+    this.infect = constrain(this.infect + random(-0.02,0.02),0.01,0.4);
+    this.severity = constrain(this.severity + random(-0.02,0.02),0.05,0.8);
+    this.death = constrain(this.death + random(-0.001,0.001),0,0.05);
+  }
+}
+
+/* ===============================
+   セットアップ
+=============================== */
 function setup(){
   createCanvas(windowWidth,windowHeight);
   spawnFood(200);
@@ -92,30 +97,33 @@ function setup(){
   });
 }
 
+/* ===============================
+   メインループ
+=============================== */
 function draw(){
   time++;
-  if(time%60===0) epoch++;
+  if(time%60===0) year++;
 
-  background(0,30*fertility,10);
+  background(0,20+fertility*20,10);
 
-  // 文明進化条件
-  if(organisms.length>40 && civilization===0) civilization=1;
-  if(organisms.length>120 && civilization===1) civilization=2;
+  // 文明進化
+  if(houses.length>3) civilization=1;
+  if(houses.length>10) civilization=2;
+  if(houses.length>30) civilization=3;
 
-  // UI更新
-  year.innerText=epoch;
+  yearEl.innerText=year;
   pop.innerText=organisms.length;
+  houseCount.innerText=houses.length;
   civ.innerText=CIV_NAMES[civilization];
 
-  // 食料生成
   if(random()<0.15*fertility) foods.push(createVector(random(width),random(height)));
 
   // 食料描画
-  fill(100,255,100,120);
-  noStroke();
-  for(let f of foods) circle(f.x,f.y,4);
+  noStroke(); fill(100,255,100,120);
+  foods.forEach(f=>circle(f.x,f.y,4));
 
-  // 生物更新
+  houses.forEach(h=>h.show());
+
   for(let i=organisms.length-1;i>=0;i--){
     let o=organisms[i];
     o.update();
@@ -124,88 +132,157 @@ function draw(){
       organisms.splice(i,1);
       fertility=min(1,fertility+0.001);
     }else{
-      let child=o.reproduce();
-      if(child) organisms.push(child);
+      let c=o.reproduce();
+      if(c) organisms.push(c);
     }
   }
 }
 
-/* =====================
+/* ===============================
    コマンド
-===================== */
-function runCommand(cmd){
-  cmd=cmd.trim().toLowerCase();
-  if(cmd==="genesis"){
-    for(let i=0;i<8;i++)
+=============================== */
+function runCommand(c){
+  c=c.trim().toLowerCase();
+  if(c==="genesis"){
+    for(let i=0;i<10;i++)
       organisms.push(new Organism(random(width),random(height)));
+    seedVirus();
   }
-  if(cmd==="evolve"){
-    organisms.forEach(o=>{
-      o.dna.speed=constrain(o.dna.speed+random(-0.5,0.5),0.5,5);
-      o.dna.size=constrain(o.dna.size+random(-1,1),5,25);
-    });
-  }
-  if(cmd==="meteor"){
+  if(c==="meteor"){
     organisms=organisms.slice(0,floor(organisms.length/2));
-    fertility=0.2;
-    log("☄ METEOR IMPACT");
+    houses=[];
+    fertility=0.3;
+    log("☄ METEOR EVENT");
   }
-  if(cmd==="reset"){
-    organisms=[];foods=[];fertility=1;epoch=0;civilization=0;
+  if(c==="reset"){
+    organisms=[]; foods=[]; houses=[];
+    fertility=1; year=0; civilization=0;
     spawnFood(200);
+    runCommand("genesis");
   }
 }
 
-/* =====================
-   生物クラス
-===================== */
-class Organism{
+/* ===============================
+   家
+=============================== */
+class House {
+  constructor(x,y){
+    this.pos=createVector(x,y);
+    this.radius=60;
+  }
+  show(){
+    noFill();
+    stroke(200,200,50,80);
+    circle(this.pos.x,this.pos.y,this.radius*2);
+  }
+}
+
+/* ===============================
+   生物
+=============================== */
+class Organism {
   constructor(x,y,dna){
     this.pos=createVector(x,y);
     this.vel=p5.Vector.random2D();
     this.acc=createVector();
 
-    // DNA（色遺伝含む）
+    this.sex=random()<0.5?"M":"F";
+    this.partner=null;
+    this.home=null;
+
+    this.virus=null;
+    this.infectedTime=0;
+
     this.dna=dna||{
-      size:random(8,15),
-      speed:random(1.5,3),
-      sense:random(50,90),
+      size:random(8,14),
+      speed:random(1.2,2.5),
+      sense:random(60,100),
       hue:random(360)
     };
 
     this.health=1;
     this.age=0;
-    this.maxAge=random(800,1200);
+    this.maxAge=random(900,1400);
   }
 
   update(){
     this.age++;
 
-    // 文明別行動
-    if(civilization===2){
-      let center=createVector(width/2,height/2);
-      this.applyForce(this.seek(center).mult(0.3));
+    // ウイルス進行
+    if(this.virus){
+      this.infectedTime++;
+      this.health-=this.virus.severity*0.0006;
+      if(random()<this.virus.death*0.0008) this.health=-1;
+      if(random()<0.001) this.virus.mutate(); // 変異
+      if(random()<0.0005) this.virus=null; // 自然消滅
+      this.spreadVirus();
+    }
+
+    if(this.partner && this.home){
+      this.stayNearHome();
     }else{
+      this.findMate();
       this.forage();
     }
 
     this.vel.add(this.acc);
-    this.vel.limit(this.dna.speed);
+    this.vel.limit(this.dna.speed*(this.virus?0.7:1));
     this.pos.add(this.vel);
     this.acc.mult(0);
 
-    this.health-=0.003*pow(this.dna.size,0.75);
+    this.health-=0.002*pow(this.dna.size,0.75);
     this.edges();
   }
 
+  spreadVirus(){
+    for(let o of organisms){
+      if(!o.virus && o!==this){
+        let d=p5.Vector.dist(this.pos,o.pos);
+        if(d<this.dna.size*2 && random()<this.virus.infect){
+          o.virus=new Virus(this.virus);
+          log("🦠 Infection spread");
+        }
+      }
+    }
+  }
+
+  findMate(){
+    if(this.partner) return;
+    for(let o of organisms){
+      if(o!==this && !o.partner && o.sex!==this.sex){
+        if(dist(this.pos.x,this.pos.y,o.pos.x,o.pos.y)<20){
+          this.partner=o; o.partner=this;
+          let h=new House((this.pos.x+o.pos.x)/2,(this.pos.y+o.pos.y)/2);
+          houses.push(h);
+          this.home=h; o.home=h;
+          log("❤️ New family formed");
+          break;
+        }
+      }
+    }
+  }
+
+  reproduce(){
+    if(this.partner && this.home && random()<0.002){
+      this.health-=0.2;
+      let d={
+        size:this.dna.size+random(-1,1),
+        speed:this.dna.speed+random(-0.3,0.3),
+        sense:this.dna.sense+random(-10,10),
+        hue:(this.dna.hue+random(-10,10)+360)%360
+      };
+      log("👶 Birth");
+      return new Organism(this.home.pos.x,this.home.pos.y,d);
+    }
+    return null;
+  }
+
   forage(){
-    let nearest=null;
-    let dmin=this.dna.sense;
+    let t=null, dmin=this.dna.sense;
     for(let i=foods.length-1;i>=0;i--){
       let d=p5.Vector.dist(this.pos,foods[i]);
       if(d<dmin){
-        dmin=d;
-        nearest=foods[i];
+        dmin=d; t=foods[i];
         if(d<this.dna.size){
           foods.splice(i,1);
           this.health+=0.3;
@@ -213,7 +290,14 @@ class Organism{
         }
       }
     }
-    if(nearest) this.applyForce(this.seek(nearest));
+    if(t) this.applyForce(this.seek(t));
+    else this.wander();
+  }
+
+  stayNearHome(){
+    let d=p5.Vector.sub(this.home.pos,this.pos);
+    if(d.mag()>this.home.radius)
+      this.applyForce(d.setMag(0.2));
     else this.wander();
   }
 
@@ -222,23 +306,6 @@ class Organism{
     this.applyForce(p5.Vector.fromAngle(a).mult(0.2));
   }
 
-  reproduce(){
-    if(this.health>1.2 && random()<0.004){
-      this.health/=2;
-      let childDNA={
-        size:this.dna.size+random(-1,1),
-        speed:this.dna.speed+random(-0.3,0.3),
-        sense:this.dna.sense+random(-10,10),
-        hue:(this.dna.hue+random(-10,10)+360)%360
-      };
-      log(`Mutation → size:${childDNA.size.toFixed(1)} speed:${childDNA.speed.toFixed(1)}`);
-      return new Organism(this.pos.x,this.pos.y,childDNA);
-    }
-    return null;
-  }
-
-  dead(){ return this.health<=0||this.age>this.maxAge; }
-
   seek(t){
     let d=p5.Vector.sub(t,this.pos);
     d.setMag(this.dna.speed);
@@ -246,6 +313,7 @@ class Organism{
   }
 
   applyForce(f){ this.acc.add(f); }
+  dead(){ return this.health<=0||this.age>this.maxAge; }
 
   edges(){
     if(this.pos.x<0) this.pos.x=width;
@@ -256,35 +324,36 @@ class Organism{
 
   show(){
     colorMode(HSB,360,100,100,100);
-    let pulse=sin(time*0.1+this.pos.x)*2;
-    let c=color(this.dna.hue,80,100,80);
-
+    let c=color(this.dna.hue,80,this.virus?70:100,80);
     push();
     translate(this.pos.x,this.pos.y);
     rotate(this.vel.heading()+PI/2);
-    noStroke();
-    fill(c);
+    noStroke(); fill(c);
     beginShape();
-    vertex(0,-this.dna.size*1.5-pulse);
+    vertex(0,-this.dna.size*1.5);
     bezierVertex(-this.dna.size,0,-this.dna.size,this.dna.size,0,this.dna.size);
     bezierVertex(this.dna.size,this.dna.size,this.dna.size,0,0,-this.dna.size*1.5);
     endShape();
     pop();
-
     colorMode(RGB,255);
   }
 }
 
-/* =====================
+/* ===============================
    補助
-===================== */
+=============================== */
 function spawnFood(n){
   for(let i=0;i<n;i++)
     foods.push(createVector(random(width),random(height)));
 }
+function seedVirus(){
+  let o=random(organisms);
+  o.virus=new Virus(random(VIRUS_POOL));
+  log("🦠 Virus introduced");
+}
 function log(t){
   let l=document.getElementById("log");
-  l.innerHTML=`${t}<br>`+l.innerHTML;
+  l.innerHTML=t+"<br>"+l.innerHTML;
 }
 function windowResized(){
   resizeCanvas(windowWidth,windowHeight);
@@ -292,5 +361,3 @@ function windowResized(){
 </script>
 </body>
 </html>
-
-
